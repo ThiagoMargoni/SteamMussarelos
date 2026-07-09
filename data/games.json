@@ -1,0 +1,15 @@
+{
+  "launcher": {
+    "version": "1.0.0",
+    "download": "https://github.com/USER/REPO/releases/latest"
+  },
+  "games": [
+    {
+      "name": "Jogo Exemplo",
+      "version": "1.0.0",
+      "download": "https://drive.google.com/file/d/EXEMPLO/view",
+      "icon": "icons/exemplo.png",
+      "executable": "JogoExemplo.exe"
+    }
+  ]
+}

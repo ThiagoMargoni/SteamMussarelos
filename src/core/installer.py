@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+import os
+import shutil
+import tempfile
+import threading
+import time
+import zipfile
+from pathlib import Path
+from typing import Callable, Optional
+
+import requests
+
+from src.core.settings import Settings
+from src.models.game import DownloadState, Game
+from src.utils import format_bytes, format_speed, normalize_gdrive_url
+
+ProgressCallback = Callable[[Game], None]
+
+class Installer:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self._active: dict[str, threading.Thread] = {}
+        self._cancel_flags: dict[str, threading.Event] = {}
+
+    def is_busy(self, game_name: str) -> bool:
+        t = self._active.get(game_name)
+        return t is not None and t.is_alive()
+
+    def install(
+        self,
+        game: Game,
+        on_progress: Optional[ProgressCallback] = None,
+        is_update: bool = False,
+    ) -> None:
+        if self.is_busy(game.name):
+            return
+
+        cancel = threading.Event()
+        self._cancel_flags[game.name] = cancel
+
+        def _run() -> None:
+            try:
+                self._do_install(game, cancel, on_progress, is_update)
+            finally:
+                self._active.pop(game.name, None)
+                self._cancel_flags.pop(game.name, None)
+
+        t = threading.Thread(target=_run, daemon=True)
+        self._active[game.name] = t
+        t.start()
+
+    def _notify(self, game: Game, cb: Optional[ProgressCallback]) -> None:
+        if cb:
+            cb(game)
+
+    def _do_install(
+        self,
+        game: Game,
+        cancel: threading.Event,
+        on_progress: Optional[ProgressCallback],
+        is_update: bool,
+    ) -> None:
+        games_folder = self.settings.games_folder
+        if not games_folder:
+            game.download_state = DownloadState.ERROR
+            game.download_error = "Pasta de jogos não configurada."
+            self._notify(game, on_progress)
+            return
+
+        game_dir = Path(games_folder) / game.name
+        game.download_state = DownloadState.DOWNLOADING
+        game.download_progress = 0.0
+        game.download_error = ""
+        self._notify(game, on_progress)
+
+        if is_update and game_dir.exists():
+            shutil.rmtree(game_dir, ignore_errors=True)
+
+        game_dir.mkdir(parents=True, exist_ok=True)
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        zip_path = tmp_dir / f"{game.name}.zip"
+
+        try:
+            self._download(game, zip_path, cancel, on_progress)
+            if cancel.is_set():
+                return
+
+            game.download_state = DownloadState.EXTRACTING
+            game.download_progress = 0.0
+            self._notify(game, on_progress)
+
+            self._extract_smart(zip_path, game_dir)
+            self._write_version(game_dir, game.version)
+
+            if not game.executable:
+                game.executable = self._find_executable(game_dir)
+
+            game.installed_version = game.version
+            game.install_path = str(game_dir)
+            game.update_status()
+
+            self.settings.set_installed_game(
+                game.name,
+                game.version,
+                str(game_dir),
+                game.executable,
+            )
+
+            game.download_state = DownloadState.FINISHED
+            game.download_progress = 100.0
+            self._notify(game, on_progress)
+
+        except Exception as exc:
+            game.download_state = DownloadState.ERROR
+            game.download_error = str(exc)
+            self._notify(game, on_progress)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _download(
+        self,
+        game: Game,
+        dest: Path,
+        cancel: threading.Event,
+        on_progress: Optional[ProgressCallback],
+    ) -> None:
+        url = normalize_gdrive_url(game.download)
+        session = requests.Session()
+        resp = session.get(url, stream=True, timeout=30)
+        resp.raise_for_status()
+
+        total = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        start = time.time()
+        last_notify = start
+
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=256 * 1024):
+                if cancel.is_set():
+                    return
+                if not chunk:
+                    continue
+                f.write(chunk)
+                downloaded += len(chunk)
+
+                now = time.time()
+                if now - last_notify >= 0.15:
+                    elapsed = now - start
+                    speed = downloaded / elapsed if elapsed > 0 else 0
+                    game.download_speed = format_speed(speed)
+                    if total:
+                        game.download_progress = (downloaded / total) * 100
+                        game.download_size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
+                    else:
+                        game.download_progress = min(99, game.download_progress + 1)
+                        game.download_size = format_bytes(downloaded)
+                    self._notify(game, on_progress)
+                    last_notify = now
+
+        game.download_progress = 100.0
+        if total:
+            game.download_size = f"{format_bytes(total)} / {format_bytes(total)}"
+        self._notify(game, on_progress)
+
+    def _extract_smart(self, zip_path: Path, dest: Path) -> None:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = [n for n in zf.namelist() if n.strip()]
+            if not names:
+                return
+
+            normalized = [n.replace("\\", "/") for n in names]
+            top_levels = {n.split("/")[0] for n in normalized if n.split("/")[0]}
+
+            strip_prefix: str | None = None
+            if len(top_levels) == 1:
+                root = next(iter(top_levels))
+                if all(n == root or n.startswith(root + "/") for n in normalized):
+                    strip_prefix = root
+
+            for member in zf.infolist():
+                rel = member.filename.replace("\\", "/")
+                if strip_prefix:
+                    if rel == strip_prefix or rel == strip_prefix + "/":
+                        continue
+                    if rel.startswith(strip_prefix + "/"):
+                        rel = rel[len(strip_prefix) + 1 :]
+                if not rel or rel.endswith("/"):
+                    target = dest / rel
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                target = dest / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+
+    def _write_version(self, game_dir: Path, ver: str) -> None:
+        (game_dir / "version.txt").write_text(ver, encoding="utf-8")
+
+    def _find_executable(self, game_dir: Path) -> Optional[str]:
+        exes = list(game_dir.glob("*.exe"))
+        if exes:
+            return exes[0].name
+        for sub in game_dir.iterdir():
+            if sub.is_dir():
+                sub_exes = list(sub.glob("*.exe"))
+                if sub_exes:
+                    return str(sub_exes[0].relative_to(game_dir)).replace("\\", "/")
+        return None
+
+    def remove_installation(self, game: Game) -> None:
+        if game.install_path and os.path.isdir(game.install_path):
+            shutil.rmtree(game.install_path, ignore_errors=True)
+        game.installed_version = None
+        game.install_path = None
+        game.update_status()
+        self.settings.remove_installed_game(game.name)
