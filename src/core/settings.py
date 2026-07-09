@@ -8,7 +8,7 @@ from typing import Any, Optional
 APP_NAME = "SteamMussarelos"
 LAUNCHER_VERSION = "1.0.0"
 
-REMOTE_CATALOG_URL = "https://raw.githubusercontent.com/ThiagoMargoni/SteamMussarelos/main/data/games.json"
+REMOTE_CATALOG_URL = "https://raw.githubusercontent.com/ThiagoMargoni/SteamMussarelos/master/data/games.json"
 
 def _app_data_dir() -> Path:
     base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home())
