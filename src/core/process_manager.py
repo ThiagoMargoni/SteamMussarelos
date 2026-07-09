@@ -16,22 +16,27 @@ class ProcessManager:
     def is_running(self, game: Game) -> bool:
         with self._lock:
             proc = self._running.get(game.name)
+
             if proc and proc.poll() is None:
                 game.pid = proc.pid
                 return True
+            
             if proc:
                 self._running.pop(game.name, None)
 
         if game.install_path and game.executable:
             exe_path = Path(game.install_path) / game.executable
+
             if exe_path.exists():
                 for p in psutil.process_iter(["pid", "exe"]):
                     try:
                         if p.info["exe"] and Path(p.info["exe"]).resolve() == exe_path.resolve():
                             game.pid = p.info["pid"]
                             return True
+                        
                     except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
                         continue
+
         return False
 
     def start(self, game: Game) -> tuple[bool, str]:
@@ -54,6 +59,7 @@ class ProcessManager:
                 self._running[game.name] = proc
             game.pid = proc.pid
             return True, "Jogo iniciado."
+        
         except OSError as exc:
             return False, str(exc)
 

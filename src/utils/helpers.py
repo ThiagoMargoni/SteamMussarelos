@@ -4,7 +4,6 @@ import re
 from urllib.parse import parse_qs, urlparse
 
 def normalize_gdrive_url(url: str) -> str:
-    """Converte links de compartilhamento do Google Drive em URL de download direto."""
     if "drive.google.com" not in url:
         return url
 
@@ -13,6 +12,7 @@ def normalize_gdrive_url(url: str) -> str:
         match = re.search(r"/file/d/([^/]+)", url)
         if match:
             file_id = match.group(1)
+
     elif "id=" in url:
         parsed = parse_qs(urlparse(url).query)
         file_id = parsed.get("id", [None])[0]

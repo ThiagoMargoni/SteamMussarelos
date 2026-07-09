@@ -6,7 +6,6 @@ from src.core.defender import DefenderService
 from src.core.settings import Settings
 
 def apply_games_folder(settings: Settings, folder: str) -> tuple[bool, str]:
-    """Cria a pasta, adiciona exclusão no Defender e atualiza as configurações."""
     path = Path(folder).resolve()
     path.mkdir(parents=True, exist_ok=True)
 

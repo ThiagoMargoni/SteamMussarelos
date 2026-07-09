@@ -11,12 +11,21 @@ from src.core.folder_setup import apply_games_folder
 from src.core.install_state import sync_game_with_disk
 from src.core.installer import Installer
 from src.core.process_manager import ProcessManager
-from src.core.settings import LAUNCHER_VERSION, Settings
+from src.core.settings import Settings
 from src.models.game import DownloadState, Game, GameStatus
 from src.ui.download_panel import DownloadPanel
 from src.ui.game_card import GameCard
 from src.ui.setup_wizard import SetupWizard
-from src.ui.theme import COLORS, FONT_BUTTON, FONT_NORMAL, FONT_TITLE
+from src.ui.theme import (
+    CARD_RADIUS,
+    COLORS,
+    FONT_BODY,
+    FONT_BUTTON,
+    FONT_CAPTION,
+    FONT_DISPLAY,
+    FONT_HEADING,
+    HEADER_HEIGHT,
+)
 
 class MainWindow(ctk.CTk):
     def __init__(self) -> None:
@@ -31,8 +40,8 @@ class MainWindow(ctk.CTk):
         self._refresh_job: str | None = None
 
         self.title("Steam dos Mussarelos")
-        self.geometry("960x700")
-        self.minsize(800, 600)
+        self.geometry("1024x760")
+        self.minsize(900, 640)
         self.configure(fg_color=COLORS["bg_dark"])
 
         ctk.set_appearance_mode("dark")
@@ -50,74 +59,113 @@ class MainWindow(ctk.CTk):
         self._start_process_monitor()
 
     def _build_header(self) -> None:
-        header = ctk.CTkFrame(self, fg_color=COLORS["bg_medium"], height=56, corner_radius=0)
+        header = ctk.CTkFrame(
+            self,
+            fg_color=COLORS["bg_medium"],
+            height=HEADER_HEIGHT,
+            corner_radius=0,
+            border_width=0,
+        )
         header.pack(fill="x")
         header.pack_propagate(False)
 
+        left = ctk.CTkFrame(header, fg_color="transparent")
+        left.pack(side="left", fill="y", padx=20)
+
         ctk.CTkLabel(
-            header,
+            left,
             text="STEAM DOS MUSSARELOS",
-            font=FONT_TITLE,
+            font=FONT_DISPLAY,
             text_color=COLORS["accent"],
-        ).pack(side="left", padx=20, pady=12)
+        ).pack(anchor="w", pady=(10, 0))
+
+        ctk.CTkLabel(
+            left,
+            text="Biblioteca de jogos",
+            font=FONT_CAPTION,
+            text_color=COLORS["text_muted"],
+        ).pack(anchor="w")
+
+        right = ctk.CTkFrame(header, fg_color="transparent")
+        right.pack(side="right", fill="y", padx=16)
+
+        self.folder_btn = ctk.CTkButton(
+            right,
+            text="Pasta dos jogos",
+            font=FONT_CAPTION,
+            fg_color=COLORS["bg_panel"],
+            hover_color=COLORS["bg_card_hover"],
+            text_color=COLORS["text_dim"],
+            anchor="center",
+            height=36,
+            width=300,
+            corner_radius=8,
+            command=self._change_games_folder,
+        )
+        self.folder_btn.pack(side="right", padx=(8, 0), pady=14)
 
         self.reload_btn = ctk.CTkButton(
-            header,
-            text="↻ Atualizar",
+            right,
+            text="Atualizar",
             width=120,
+            height=36,
+            corner_radius=8,
             fg_color=COLORS["bg_card"],
             hover_color=COLORS["bg_card_hover"],
             font=FONT_BUTTON,
             command=self._reload_catalog,
         )
-        self.reload_btn.pack(side="right", padx=8, pady=12)
-
-        self.folder_btn = ctk.CTkButton(
-            header,
-            text="📁 —",
-            font=FONT_NORMAL,
-            fg_color="transparent",
-            hover_color=COLORS["bg_card"],
-            text_color=COLORS["accent"],
-            anchor="e",
-            width=320,
-            command=self._change_games_folder,
-        )
-        self.folder_btn.pack(side="right", padx=12, pady=12)
+        self.reload_btn.pack(side="right", pady=14)
 
     def _build_library(self) -> None:
+        wrapper = ctk.CTkFrame(self, fg_color="transparent")
+        wrapper.pack(fill="both", expand=True, padx=16, pady=(12, 0))
+
+        ctk.CTkLabel(
+            wrapper,
+            text="Biblioteca",
+            font=FONT_HEADING,
+            text_color=COLORS["text"],
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
+
         self.library_frame = ctk.CTkScrollableFrame(
-            self,
-            fg_color=COLORS["bg_dark"],
-            label_text="Biblioteca",
-            label_font=FONT_BUTTON,
-            label_text_color=COLORS["text_dim"],
+            wrapper,
+            fg_color=COLORS["bg_panel"],
+            corner_radius=CARD_RADIUS,
+            border_width=1,
+            border_color=COLORS["border"],
+            scrollbar_button_color=COLORS["border"],
+            scrollbar_button_hover_color=COLORS["border_light"],
         )
-        self.library_frame.pack(fill="both", expand=True, padx=12, pady=(8, 0))
+        self.library_frame.pack(fill="both", expand=True)
         self.library_frame.grid_columnconfigure(0, weight=1)
 
         self.loading_label = ctk.CTkLabel(
             self.library_frame,
             text="Carregando catálogo...",
-            font=FONT_NORMAL,
-            text_color=COLORS["text_dim"],
+            font=FONT_BODY,
+            text_color=COLORS["text_muted"],
         )
-        self.loading_label.grid(row=0, column=0, pady=40)
+        self.loading_label.grid(row=0, column=0, pady=60)
 
     def _build_downloads(self) -> None:
-        self.download_panel = DownloadPanel(self)
-        self.download_panel.pack(fill="x", side="bottom")
+        wrapper = ctk.CTkFrame(self, fg_color="transparent")
+        wrapper.pack(fill="x", padx=16, pady=(8, 16))
+
+        self.download_panel = DownloadPanel(wrapper)
+        self.download_panel.pack(fill="x")
 
     def _show_setup(self) -> None:
         SetupWizard(self, self.settings, on_complete=self._initial_load)
 
     def _update_folder_display(self) -> None:
-        folder = self.settings.games_folder or "Clique para escolher a pasta"
-        display = self._shorten_path(folder, max_len=42)
-        self.folder_btn.configure(text=f"📁 {display}")
+        folder = self.settings.games_folder or "Escolher pasta..."
+        display = self._shorten_path(folder, max_len=38)
+        self.folder_btn.configure(text=display)
 
     @staticmethod
-    def _shorten_path(path: str, max_len: int = 42) -> str:
+    def _shorten_path(path: str, max_len: int = 38) -> str:
         if len(path) <= max_len:
             return path
         parts = Path(path).parts
@@ -149,7 +197,7 @@ class MainWindow(ctk.CTk):
         if not messagebox.askyesno("Alterar pasta dos jogos", msg):
             return
 
-        self.folder_btn.configure(state="disabled", text="📁 Configurando...")
+        self.folder_btn.configure(state="disabled", text="Configurando...")
 
         def _apply() -> None:
             try:
@@ -189,18 +237,30 @@ class MainWindow(ctk.CTk):
                     lambda: messagebox.showerror("Erro", f"Falha ao carregar catálogo:\n{exc}"),
                 )
             finally:
-                self.after(0, lambda: self.reload_btn.configure(state="normal", text="↻ Atualizar"))
+                self.after(0, lambda: self.reload_btn.configure(state="normal", text="Atualizar"))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _render_catalog(self, games: list[Game]) -> None:
         self.loading_label.grid_forget()
+        if hasattr(self, "_empty_label") and self._empty_label.winfo_exists():
+            self._empty_label.destroy()
 
         for card in self._cards.values():
             card.destroy()
         self._cards.clear()
 
         self.process_manager.refresh_all(games)
+
+        if not games:
+            self._empty_label = ctk.CTkLabel(
+                self.library_frame,
+                text="Nenhum jogo encontrado no catálogo.",
+                font=FONT_BODY,
+                text_color=COLORS["text_muted"],
+            )
+            self._empty_label.grid(row=0, column=0, pady=60)
+            return
 
         for i, game in enumerate(games):
             card = GameCard(
@@ -212,7 +272,7 @@ class MainWindow(ctk.CTk):
                 on_stop=self._on_stop,
                 on_uninstall=self._on_uninstall,
             )
-            card.grid(row=i, column=0, sticky="ew", pady=6)
+            card.grid(row=i, column=0, sticky="ew", padx=10, pady=6)
             self._cards[game.name] = card
 
     def _check_launcher_update(self) -> None:
@@ -256,11 +316,16 @@ class MainWindow(ctk.CTk):
                     f"{game.name}\n\n{game.download_error}",
                 )
             elif game.download_state == DownloadState.FINISHED:
-                game.download_state = DownloadState.IDLE
-                if card:
-                    card.refresh()
+                self.after(4500, lambda g=game: self._reset_download_state(g))
 
         self.after(0, _ui)
+
+    def _reset_download_state(self, game: Game) -> None:
+        if game.download_state == DownloadState.FINISHED:
+            game.download_state = DownloadState.IDLE
+            card = self._cards.get(game.name)
+            if card:
+                card.refresh()
 
     def _on_install(self, game: Game) -> None:
         self.installer.install(game, on_progress=self._on_progress)

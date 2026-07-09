@@ -31,10 +31,11 @@ def extract_gdrive_file_id(url: str) -> Optional[str]:
     return None
 
 def normalize_gdrive_url(url: str) -> str:
-    """Converte links de compartilhamento do Google Drive em URL de download direto."""
     file_id = extract_gdrive_file_id(url)
+
     if file_id:
         return f"https://drive.google.com/uc?export=download&id={file_id}"
+    
     return url
 
 def _gdrive_confirm_token(response: requests.Response) -> Optional[str]:
@@ -59,10 +60,6 @@ def download_file(
     on_chunk: Optional[Callable[[int, int], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
 ) -> int:
-    """
-    Baixa um arquivo de URL genérica ou Google Drive.
-    Retorna o total de bytes baixados.
-    """
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
 
@@ -93,6 +90,7 @@ def _download_gdrive(
             params["confirm"] = token
             response = session.get(base_url, params=params, stream=True, timeout=60)
             response.raise_for_status()
+
         else:
             raise ValueError(
                 "Google Drive exige confirmação de download. "
@@ -108,6 +106,7 @@ def _download_gdrive(
 
     with open(dest, "rb") as f:
         header = f.read(512)
+
     if header[:2] != b"PK" and b"<html" in header.lower():
         raise ValueError(
             "Google Drive retornou uma página HTML em vez do arquivo. "
@@ -144,10 +143,13 @@ def _stream_to_file(
         for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
             if cancel_check and cancel_check():
                 raise InterruptedError("Download cancelado.")
+            
             if not chunk:
                 continue
+            
             f.write(chunk)
             downloaded += len(chunk)
+
             if on_chunk:
                 on_chunk(downloaded, total)
 

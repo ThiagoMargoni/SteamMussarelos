@@ -26,6 +26,7 @@ def is_installed_at(path: Path, executable: str | None = None) -> bool:
 def is_game_on_disk(game: Game) -> bool:
     if not game.install_path:
         return False
+    
     return is_installed_at(Path(game.install_path), game.executable)
 
 def clear_install_state(game: Game, settings: Settings) -> None:
@@ -36,10 +37,7 @@ def clear_install_state(game: Game, settings: Settings) -> None:
     game.update_status(is_running=False)
 
 def sync_game_with_disk(game: Game, settings: Settings) -> bool:
-    """
-    Alinha o estado do jogo com o que existe no disco.
-    Retorna True se o jogo está instalado após a sincronização.
-    """
+
     games_folder = settings.games_folder
     folder_path = Path(games_folder) / game.name if games_folder else None
 
@@ -59,6 +57,7 @@ def sync_game_with_disk(game: Game, settings: Settings) -> bool:
             game.executable,
         )
         game.update_status()
+        
         return True
 
     if game.installed_version or game.install_path:

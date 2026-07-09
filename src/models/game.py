@@ -39,10 +39,13 @@ class Game:
     def update_status(self, is_running: bool = False) -> None:
         if is_running:
             self.status = GameStatus.RUNNING
+
         elif not self.installed_version:
             self.status = GameStatus.NOT_INSTALLED
+            
         elif self.installed_version != self.version:
             self.status = GameStatus.UPDATE_AVAILABLE
+            
         else:
             self.status = GameStatus.INSTALLED
 

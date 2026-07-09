@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 class DefenderService:
-    """Gerencia exclusões do Microsoft Defender no Windows."""
 
     @staticmethod
     def is_windows() -> bool:
@@ -29,10 +28,13 @@ class DefenderService:
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
+
             if result.returncode != 0:
                 return False
+            
             exclusions = result.stdout.strip().lower()
             return folder.lower() in exclusions
+        
         except (subprocess.SubprocessError, OSError):
             return False
 
@@ -58,8 +60,11 @@ class DefenderService:
                 timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
+
             if result.returncode == 0:
                 return True, "Exclusão adicionada ao Microsoft Defender."
+            
             return False, result.stderr.strip() or "Falha ao adicionar exclusão (execute como administrador)."
+        
         except (subprocess.SubprocessError, OSError) as exc:
             return False, str(exc)

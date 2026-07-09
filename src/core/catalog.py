@@ -32,8 +32,10 @@ class CatalogService:
             resp = requests.get(self.catalog_url, timeout=15)
             resp.raise_for_status()
             data = resp.json()
+
         except Exception as exc:
             errors.append(str(exc))
+
             if local_fallback:
                 local_path = Path(__file__).resolve().parents[2] / "data" / "games.json"
                 if local_path.exists():
@@ -50,6 +52,7 @@ class CatalogService:
         self._merge_local_state(catalog)
         with self._lock:
             self._catalog = catalog
+
         return catalog
 
     def _parse_catalog(self, data: dict) -> Catalog:
@@ -71,6 +74,7 @@ class CatalogService:
                     executable=entry.get("executable"),
                 )
             )
+
         return Catalog(launcher=launcher, games=games)
 
     def _merge_local_state(self, catalog: Catalog) -> None:
@@ -126,29 +130,37 @@ class CatalogService:
 
     def _detect_version(self, game_dir: Path) -> Optional[str]:
         version_file = game_dir / "version.txt"
+
         if version_file.exists():
             return version_file.read_text(encoding="utf-8").strip()
+        
         return None
 
     def _find_executable(self, game_dir: Path) -> Optional[str]:
         exes = list(game_dir.glob("*.exe"))
         if exes:
             return exes[0].name
+        
         for sub in game_dir.iterdir():
             if sub.is_dir():
                 sub_exes = list(sub.glob("*.exe"))
                 if sub_exes:
                     return str(sub_exes[0].relative_to(game_dir)).replace("\\", "/")
+                
         return None
 
     def launcher_update_available(self) -> bool:
         if not self._catalog:
             return False
+        
         remote = self._catalog.launcher.latest_version
         local = self.settings.launcher_version
+
         if not remote:
             return False
+        
         try:
             return version.parse(remote) > version.parse(local)
+        
         except Exception:
             return remote != local

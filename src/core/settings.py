@@ -49,11 +49,11 @@ class Settings:
         self._data["games_folder"] = value
 
     def set_games_folder(self, folder: str) -> None:
-        """Define a pasta dos jogos e atualiza os caminhos das instalações registradas."""
         folder = str(Path(folder).resolve())
         self._data["games_folder"] = folder
         for name, info in self.installed_games.items():
             info["path"] = str(Path(folder) / name)
+            
         self.save()
 
     @property

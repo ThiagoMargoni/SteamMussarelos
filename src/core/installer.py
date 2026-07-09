@@ -41,6 +41,7 @@ class Installer:
         def _run() -> None:
             try:
                 self._do_install(game, cancel, on_progress, is_update)
+
             finally:
                 self._active.pop(game.name, None)
                 self._cancel_flags.pop(game.name, None)
@@ -120,6 +121,7 @@ class Installer:
             game.install_path = None
             game.update_status()
             self._notify(game, on_progress)
+
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -138,12 +140,15 @@ class Installer:
             now = time.time()
             if now - last_notify < 0.15 and total > 0 and downloaded < total:
                 return
+            
             elapsed = now - start
             speed = downloaded / elapsed if elapsed > 0 else 0
             game.download_speed = format_speed(speed)
+
             if total:
                 game.download_progress = (downloaded / total) * 100
                 game.download_size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
+
             else:
                 game.download_progress = min(99.0, max(1.0, downloaded / 1024 / 1024))
                 game.download_size = format_bytes(downloaded)
@@ -166,6 +171,7 @@ class Installer:
 
         with open(zip_path, "rb") as f:
             magic = f.read(4)
+
         if magic[:2] != b"PK":
             raise ValueError(
                 "O download não é um ZIP válido. "
@@ -217,16 +223,19 @@ class Installer:
         exes = list(game_dir.glob("*.exe"))
         if exes:
             return exes[0].name
+        
         for sub in game_dir.iterdir():
             if sub.is_dir():
                 sub_exes = list(sub.glob("*.exe"))
                 if sub_exes:
                     return str(sub_exes[0].relative_to(game_dir)).replace("\\", "/")
+                
         return None
 
     def remove_installation(self, game: Game) -> None:
         if game.install_path and os.path.isdir(game.install_path):
             shutil.rmtree(game.install_path, ignore_errors=True)
+            
         game.installed_version = None
         game.install_path = None
         game.update_status()
