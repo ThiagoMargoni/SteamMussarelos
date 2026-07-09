@@ -21,6 +21,7 @@ class GameCard(ctk.CTkFrame):
         on_update: Callable[[Game], None],
         on_play: Callable[[Game], None],
         on_stop: Callable[[Game], None],
+        on_uninstall: Callable[[Game], None],
         **kwargs,
     ) -> None:
         super().__init__(master, fg_color=COLORS["bg_card"], corner_radius=8, **kwargs)
@@ -29,6 +30,7 @@ class GameCard(ctk.CTkFrame):
         self._on_update = on_update
         self._on_play = on_play
         self._on_stop = on_stop
+        self._on_uninstall = on_uninstall
         self._icon_image: Optional[ctk.CTkImage] = None
 
         self.grid_columnconfigure(1, weight=1)
@@ -88,6 +90,18 @@ class GameCard(ctk.CTkFrame):
         )
         self.secondary_btn.pack(pady=2)
 
+        self.uninstall_btn = ctk.CTkButton(
+            btn_frame,
+            text="Desinstalar",
+            width=110,
+            fg_color=COLORS["bg_dark"],
+            hover_color=COLORS["danger"],
+            text_color=COLORS["text_dim"],
+            font=FONT_NORMAL,
+            command=lambda: self._on_uninstall(self.game),
+        )
+        self.uninstall_btn.pack(pady=2)
+
         self._load_icon()
         self.refresh()
 
@@ -122,7 +136,7 @@ class GameCard(ctk.CTkFrame):
     def _on_action(self) -> None:
         if self.game.status == GameStatus.RUNNING:
             self._on_stop(self.game)
-        elif self.game.status == GameStatus.INSTALLED:
+        elif self.game.status in (GameStatus.INSTALLED, GameStatus.UPDATE_AVAILABLE):
             self._on_play(self.game)
         else:
             self._on_install(self.game)
@@ -167,3 +181,13 @@ class GameCard(ctk.CTkFrame):
             self.secondary_btn.configure(state="normal")
         else:
             self.secondary_btn.configure(state="disabled")
+
+        installed = g.status in (
+            GameStatus.INSTALLED,
+            GameStatus.UPDATE_AVAILABLE,
+            GameStatus.RUNNING,
+        )
+        if installed and not busy and g.status != GameStatus.RUNNING:
+            self.uninstall_btn.configure(state="normal")
+        else:
+            self.uninstall_btn.configure(state="disabled")

@@ -6,7 +6,7 @@
   "games": [
     {
       "name": "Jogo Exemplo",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "download": "https://drive.google.com/file/d/15v4XbI2o4insTa2W-BuDByXWkWPtrJPj/view",
       "icon": "icons/icon-test.jpeg",
       "executable": "ExecutavelTeste.exe"

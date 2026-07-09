@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import threading
-from tkinter import messagebox
+from pathlib import Path
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
 from src.core.catalog import CatalogService
+from src.core.folder_setup import apply_games_folder
+from src.core.install_state import sync_game_with_disk
 from src.core.installer import Installer
 from src.core.process_manager import ProcessManager
 from src.core.settings import LAUNCHER_VERSION, Settings
@@ -69,13 +72,18 @@ class MainWindow(ctk.CTk):
         )
         self.reload_btn.pack(side="right", padx=8, pady=12)
 
-        self.folder_label = ctk.CTkLabel(
+        self.folder_btn = ctk.CTkButton(
             header,
-            text="",
+            text="📁 —",
             font=FONT_NORMAL,
-            text_color=COLORS["text_dim"],
+            fg_color="transparent",
+            hover_color=COLORS["bg_card"],
+            text_color=COLORS["accent"],
+            anchor="e",
+            width=320,
+            command=self._change_games_folder,
         )
-        self.folder_label.pack(side="right", padx=12)
+        self.folder_btn.pack(side="right", padx=12, pady=12)
 
     def _build_library(self) -> None:
         self.library_frame = ctk.CTkScrollableFrame(
@@ -103,9 +111,68 @@ class MainWindow(ctk.CTk):
     def _show_setup(self) -> None:
         SetupWizard(self, self.settings, on_complete=self._initial_load)
 
+    def _update_folder_display(self) -> None:
+        folder = self.settings.games_folder or "Clique para escolher a pasta"
+        display = self._shorten_path(folder, max_len=42)
+        self.folder_btn.configure(text=f"📁 {display}")
+
+    @staticmethod
+    def _shorten_path(path: str, max_len: int = 42) -> str:
+        if len(path) <= max_len:
+            return path
+        parts = Path(path).parts
+        if len(parts) <= 2:
+            return path[: max_len - 3] + "..."
+        return str(Path(parts[0]) / "..." / Path(*parts[-2:]))
+
+    def _change_games_folder(self) -> None:
+        current = self.settings.games_folder or str(Path.home())
+        folder = filedialog.askdirectory(
+            title="Selecione a pasta dos jogos",
+            initialdir=current if Path(current).exists() else None,
+        )
+        if not folder:
+            return
+
+        folder = str(Path(folder).resolve())
+        if folder == self.settings.games_folder:
+            return
+
+        has_games = bool(self.settings.installed_games)
+        msg = f"Usar esta pasta para os jogos?\n\n{folder}"
+        if has_games:
+            msg += (
+                "\n\nOs jogos instalados serão procurados na nova pasta. "
+                "Se ainda não estiverem lá, será necessário reinstalá-los."
+            )
+
+        if not messagebox.askyesno("Alterar pasta dos jogos", msg):
+            return
+
+        self.folder_btn.configure(state="disabled", text="📁 Configurando...")
+
+        def _apply() -> None:
+            try:
+                _, status = apply_games_folder(self.settings, folder)
+                self.after(0, lambda: self._on_folder_changed(status))
+            except Exception as exc:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror("Erro", f"Não foi possível alterar a pasta:\n{exc}"),
+                )
+                self.after(0, self._update_folder_display)
+            finally:
+                self.after(0, lambda: self.folder_btn.configure(state="normal"))
+
+        threading.Thread(target=_apply, daemon=True).start()
+
+    def _on_folder_changed(self, status: str) -> None:
+        self._update_folder_display()
+        self._reload_catalog()
+        messagebox.showinfo("Pasta atualizada", status)
+
     def _initial_load(self) -> None:
-        folder = self.settings.games_folder or "—"
-        self.folder_label.configure(text=f"📁 {folder}")
+        self._update_folder_display()
         self._reload_catalog()
 
     def _reload_catalog(self) -> None:
@@ -143,6 +210,7 @@ class MainWindow(ctk.CTk):
                 on_update=self._on_update,
                 on_play=self._on_play,
                 on_stop=self._on_stop,
+                on_uninstall=self._on_uninstall,
             )
             card.grid(row=i, column=0, sticky="ew", pady=6)
             self._cards[game.name] = card
@@ -181,7 +249,13 @@ class MainWindow(ctk.CTk):
             if card:
                 card.refresh()
             self.download_panel.update_game(game)
-            if game.download_state == DownloadState.FINISHED:
+
+            if game.download_state == DownloadState.ERROR:
+                messagebox.showerror(
+                    "Erro na instalação",
+                    f"{game.name}\n\n{game.download_error}",
+                )
+            elif game.download_state == DownloadState.FINISHED:
                 game.download_state = DownloadState.IDLE
                 if card:
                     card.refresh()
@@ -197,10 +271,37 @@ class MainWindow(ctk.CTk):
         self.installer.install(game, on_progress=self._on_progress, is_update=True)
 
     def _on_play(self, game: Game) -> None:
+        if not sync_game_with_disk(game, self.settings):
+            messagebox.showinfo(
+                "Jogo não encontrado",
+                f"{game.name} não está instalado nesta pasta.\n\n"
+                "Use Instalar para baixar novamente.",
+            )
+            card = self._cards.get(game.name)
+            if card:
+                card.refresh()
+            return
+
         ok, msg = self.process_manager.start(game)
         if not ok:
             messagebox.showwarning("Aviso", msg)
         game.update_status(is_running=True)
+        card = self._cards.get(game.name)
+        if card:
+            card.refresh()
+
+    def _on_uninstall(self, game: Game) -> None:
+        if game.status == GameStatus.RUNNING:
+            messagebox.showwarning("Aviso", "Encerre o jogo antes de desinstalar.")
+            return
+
+        if not messagebox.askyesno(
+            "Desinstalar",
+            f"Remover {game.name}?\n\nTodos os arquivos da instalação serão apagados.",
+        ):
+            return
+
+        self.installer.remove_installation(game)
         card = self._cards.get(game.name)
         if card:
             card.refresh()
@@ -215,12 +316,18 @@ class MainWindow(ctk.CTk):
     def _start_process_monitor(self) -> None:
         def _tick() -> None:
             if self.catalog_service.catalog:
-                changed = False
                 for game in self.catalog_service.catalog.games:
+                    was_installed = game.status in (
+                        GameStatus.INSTALLED,
+                        GameStatus.UPDATE_AVAILABLE,
+                        GameStatus.RUNNING,
+                    )
                     was_running = game.status == GameStatus.RUNNING
+
+                    if was_installed and not was_running:
+                        sync_game_with_disk(game, self.settings)
+
                     self.process_manager.refresh_all([game])
-                    if was_running != (game.status == GameStatus.RUNNING):
-                        changed = True
                     card = self._cards.get(game.name)
                     if card:
                         card.refresh()

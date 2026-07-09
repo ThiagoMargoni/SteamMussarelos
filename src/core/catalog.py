@@ -9,6 +9,7 @@ from typing import Optional
 import requests
 from packaging import version
 
+from src.core.install_state import is_installed_at, sync_game_with_disk
 from src.core.settings import REMOTE_CATALOG_URL, Settings
 from src.models.game import Catalog, Game, LauncherInfo
 
@@ -80,9 +81,13 @@ class CatalogService:
                 game.install_path = local.get("path")
                 if not game.executable:
                     game.executable = local.get("executable")
-            game.update_status()
+
+            sync_game_with_disk(game, self.settings)
 
         self._scan_existing_installs(catalog)
+
+        for game in catalog.games:
+            game.update_status()
 
     def _scan_existing_installs(self, catalog: Catalog) -> None:
         folder = self.settings.games_folder
@@ -100,20 +105,22 @@ class CatalogService:
                 continue
 
             game = catalog_by_name[name]
-            detected_version = self._detect_version(entry)
+            if not is_installed_at(entry, game.executable):
+                continue
 
-            if detected_version:
-                if (
-                    not game.installed_version
-                    or version.parse(detected_version) > version.parse(game.installed_version)
-                ):
-                    game.installed_version = detected_version
-                    game.install_path = str(entry)
-                    exe = game.executable or self._find_executable(entry)
-                    game.executable = exe
-                    self.settings.set_installed_game(
-                        name, detected_version, str(entry), exe
-                    )
+            detected_version = self._detect_version(entry) or game.version
+
+            if (
+                not game.installed_version
+                or version.parse(detected_version) > version.parse(game.installed_version)
+            ):
+                game.installed_version = detected_version
+                game.install_path = str(entry)
+                exe = game.executable or self._find_executable(entry)
+                game.executable = exe
+                self.settings.set_installed_game(
+                    name, detected_version, str(entry), exe
+                )
 
             game.update_status()
 
@@ -121,10 +128,6 @@ class CatalogService:
         version_file = game_dir / "version.txt"
         if version_file.exists():
             return version_file.read_text(encoding="utf-8").strip()
-
-        local = self.settings.get_installed_game(game_dir.name)
-        if local:
-            return local.get("version")
         return None
 
     def _find_executable(self, game_dir: Path) -> Optional[str]:

@@ -9,11 +9,10 @@ import zipfile
 from pathlib import Path
 from typing import Callable, Optional
 
-import requests
-
+from src.core.downloader import download_file
 from src.core.settings import Settings
 from src.models.game import DownloadState, Game
-from src.utils import format_bytes, format_speed, normalize_gdrive_url
+from src.utils import format_bytes, format_speed
 
 ProgressCallback = Callable[[Game], None]
 
@@ -115,6 +114,11 @@ class Installer:
         except Exception as exc:
             game.download_state = DownloadState.ERROR
             game.download_error = str(exc)
+            if game_dir.exists():
+                shutil.rmtree(game_dir, ignore_errors=True)
+            game.installed_version = None
+            game.install_path = None
+            game.update_status()
             self._notify(game, on_progress)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -126,49 +130,53 @@ class Installer:
         cancel: threading.Event,
         on_progress: Optional[ProgressCallback],
     ) -> None:
-        url = normalize_gdrive_url(game.download)
-        session = requests.Session()
-        resp = session.get(url, stream=True, timeout=30)
-        resp.raise_for_status()
-
-        total = int(resp.headers.get("content-length", 0))
-        downloaded = 0
         start = time.time()
         last_notify = start
 
-        with open(dest, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=256 * 1024):
-                if cancel.is_set():
-                    return
-                if not chunk:
-                    continue
-                f.write(chunk)
-                downloaded += len(chunk)
+        def on_chunk(downloaded: int, total: int) -> None:
+            nonlocal last_notify
+            now = time.time()
+            if now - last_notify < 0.15 and total > 0 and downloaded < total:
+                return
+            elapsed = now - start
+            speed = downloaded / elapsed if elapsed > 0 else 0
+            game.download_speed = format_speed(speed)
+            if total:
+                game.download_progress = (downloaded / total) * 100
+                game.download_size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
+            else:
+                game.download_progress = min(99.0, max(1.0, downloaded / 1024 / 1024))
+                game.download_size = format_bytes(downloaded)
+            self._notify(game, on_progress)
+            last_notify = now
 
-                now = time.time()
-                if now - last_notify >= 0.15:
-                    elapsed = now - start
-                    speed = downloaded / elapsed if elapsed > 0 else 0
-                    game.download_speed = format_speed(speed)
-                    if total:
-                        game.download_progress = (downloaded / total) * 100
-                        game.download_size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
-                    else:
-                        game.download_progress = min(99, game.download_progress + 1)
-                        game.download_size = format_bytes(downloaded)
-                    self._notify(game, on_progress)
-                    last_notify = now
+        download_file(
+            game.download,
+            dest,
+            on_chunk=on_chunk,
+            cancel_check=cancel.is_set,
+        )
 
         game.download_progress = 100.0
-        if total:
-            game.download_size = f"{format_bytes(total)} / {format_bytes(total)}"
         self._notify(game, on_progress)
 
     def _extract_smart(self, zip_path: Path, dest: Path) -> None:
+        if not zip_path.exists() or zip_path.stat().st_size < 4:
+            raise ValueError("Arquivo baixado está vazio ou incompleto.")
+
+        with open(zip_path, "rb") as f:
+            magic = f.read(4)
+        if magic[:2] != b"PK":
+            raise ValueError(
+                "O download não é um ZIP válido. "
+                "Verifique se o link do Google Drive está correto e público."
+            )
+
+        extracted = 0
         with zipfile.ZipFile(zip_path, "r") as zf:
             names = [n for n in zf.namelist() if n.strip()]
             if not names:
-                return
+                raise ValueError("ZIP vazio — nenhum arquivo encontrado.")
 
             normalized = [n.replace("\\", "/") for n in names]
             top_levels = {n.split("/")[0] for n in normalized if n.split("/")[0]}
@@ -176,7 +184,8 @@ class Installer:
             strip_prefix: str | None = None
             if len(top_levels) == 1:
                 root = next(iter(top_levels))
-                if all(n == root or n.startswith(root + "/") for n in normalized):
+                # Só remove pasta raiz se TODOS os arquivos estão dentro de root/
+                if all(n.startswith(root + "/") for n in normalized):
                     strip_prefix = root
 
             for member in zf.infolist():
@@ -186,6 +195,7 @@ class Installer:
                         continue
                     if rel.startswith(strip_prefix + "/"):
                         rel = rel[len(strip_prefix) + 1 :]
+
                 if not rel or rel.endswith("/"):
                     target = dest / rel
                     target.mkdir(parents=True, exist_ok=True)
@@ -195,6 +205,10 @@ class Installer:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as src, open(target, "wb") as out:
                     shutil.copyfileobj(src, out)
+                extracted += 1
+
+        if extracted == 0:
+            raise ValueError("Nenhum arquivo foi extraído do ZIP.")
 
     def _write_version(self, game_dir: Path, ver: str) -> None:
         (game_dir / "version.txt").write_text(ver, encoding="utf-8")

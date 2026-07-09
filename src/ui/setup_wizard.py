@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from src.core.defender import DefenderService
+from src.core.folder_setup import apply_games_folder
 from src.core.settings import Settings
 from src.ui.theme import COLORS, FONT_BUTTON, FONT_NORMAL, FONT_TITLE
 
@@ -92,18 +91,7 @@ class SetupWizard(ctk.CTkToplevel):
         self.status_label.configure(text="Configurando...")
 
         def _setup() -> None:
-            path = Path(folder)
-            path.mkdir(parents=True, exist_ok=True)
-
-            ok, msg = DefenderService.add_exclusion(str(path))
-            status = f"Pasta criada: {path}\n{msg}"
-            if not ok:
-                status += "\n⚠ Execute como administrador para adicionar exclusão no Defender."
-
-            self.settings.games_folder = str(path)
-            self.settings.first_run_complete = True
-            self.settings.save()
-
+            ok, status = apply_games_folder(self.settings, folder)
             self.after(0, lambda: self._finish(status))
 
         threading.Thread(target=_setup, daemon=True).start()
