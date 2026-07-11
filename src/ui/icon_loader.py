@@ -10,8 +10,7 @@ import requests
 from PIL import Image, ImageOps
 
 from src.ui.theme import COLORS, ICON_SIZE
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from src.utils.paths import resource_path
 
 def load_game_icon(
     icon_path: Optional[str],
@@ -24,7 +23,7 @@ def load_game_icon(
             if image is None:
                 on_ready(None)
                 return
-            
+
             ctk_img = _to_ctk_image(image, size)
             on_ready(ctk_img)
 
@@ -41,11 +40,10 @@ def _fetch_image(icon_path: Optional[str], size: int) -> Optional[Image.Image]:
         resp = requests.get(icon_path, timeout=12)
         resp.raise_for_status()
         img = Image.open(io.BytesIO(resp.content))
-
     else:
         path = Path(icon_path)
         if not path.is_absolute():
-            path = PROJECT_ROOT / icon_path
+            path = resource_path(icon_path)
 
         if not path.exists():
             return None
