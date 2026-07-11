@@ -12,7 +12,7 @@ from packaging import version
 from src.core.install_state import is_installed_at, sync_game_with_disk
 from src.core.settings import REMOTE_CATALOG_URL, Settings
 from src.models.game import Catalog, Game, LauncherInfo
-from src.utils.paths import resource_path
+from src.utils.paths import resolve_resource, resource_path
 
 class CatalogService:
     def __init__(self, settings: Settings, catalog_url: str = REMOTE_CATALOG_URL) -> None:
@@ -38,8 +38,8 @@ class CatalogService:
             errors.append(str(exc))
 
             if local_fallback:
-                local_path = resource_path("data", "games.json")
-                if local_path.exists():
+                local_path = resolve_resource("data", "games.json") or resource_path("data", "games.json")
+                if local_path and Path(local_path).exists():
                     with open(local_path, encoding="utf-8") as f:
                         data = json.load(f)
 

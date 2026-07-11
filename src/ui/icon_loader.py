@@ -10,7 +10,8 @@ import requests
 from PIL import Image, ImageOps
 
 from src.ui.theme import COLORS, ICON_SIZE
-from src.utils.paths import resource_path
+from src.utils.paths import resolve_resource
+
 
 def load_game_icon(
     icon_path: Optional[str],
@@ -23,10 +24,7 @@ def load_game_icon(
             if image is None:
                 on_ready(None)
                 return
-
-            ctk_img = _to_ctk_image(image, size)
-            on_ready(ctk_img)
-
+            on_ready(_to_ctk_image(image, size))
         except Exception:
             on_ready(None)
 
@@ -36,20 +34,28 @@ def _fetch_image(icon_path: Optional[str], size: int) -> Optional[Image.Image]:
     if not icon_path:
         return None
 
-    if icon_path.startswith("http"):
+    if icon_path.startswith("http://") or icon_path.startswith("https://"):
         resp = requests.get(icon_path, timeout=12)
         resp.raise_for_status()
         img = Image.open(io.BytesIO(resp.content))
     else:
         path = Path(icon_path)
-        if not path.is_absolute():
-            path = resource_path(icon_path)
+        if path.is_absolute():
+            if not path.exists():
+                return None
+        else:
+            found = resolve_resource(icon_path)
+            if found is None:
+                found = resolve_resource("icons", Path(icon_path).name)
+            if found is None:
+                return None
+            path = found
 
-        if not path.exists():
-            return None
         img = Image.open(path)
 
+    img.load()
     return ImageOps.fit(img.convert("RGB"), (size, size), Image.Resampling.LANCZOS)
+
 
 def _to_ctk_image(img: Image.Image, size: int) -> ctk.CTkImage:
     return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
@@ -64,7 +70,7 @@ def apply_icon_to_label(
         label.configure(image=ctk_image, text="")
         label._icon_ref = ctk_image
         return ctk_image
-    
+
     label.configure(
         image=None,
         text=placeholder,
