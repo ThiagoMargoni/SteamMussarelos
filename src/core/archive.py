@@ -6,9 +6,15 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
+ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z"}
+
+
 def detect_archive_type(path: Path) -> str:
-    with open(path, "rb") as f:
-        magic = f.read(8)
+    try:
+        with open(path, "rb") as f:
+            magic = f.read(8)
+    except OSError:
+        return "unknown"
 
     if magic[:2] == b"PK":
         return "zip"
@@ -19,6 +25,7 @@ def detect_archive_type(path: Path) -> str:
     if magic[:2] == b"\x1f\x8b":
         return "gzip"
     return "unknown"
+
 
 def _find_7zip() -> Optional[str]:
     candidates = [
@@ -31,6 +38,7 @@ def _find_7zip() -> Optional[str]:
         if path and Path(path).is_file():
             return path
     return None
+
 
 def _find_winrar() -> Optional[str]:
     candidates = [
@@ -47,26 +55,34 @@ def _find_winrar() -> Optional[str]:
             return path
     return None
 
-def _strip_single_root(dest: Path) -> None:
-    """Se a extração criou uma única pasta raiz, sobe o conteúdo um nível."""
-    try:
-        children = [c for c in dest.iterdir()]
-    except OSError:
-        return
-
-    if len(children) != 1 or not children[0].is_dir():
-        return
-
-    root = children[0]
-    for item in list(root.iterdir()):
+def _move_contents(src: Path, dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in list(src.iterdir()):
         target = dest / item.name
         if target.exists():
+            if target.is_dir() and item.is_dir():
+                _move_contents(item, target)
+                shutil.rmtree(item, ignore_errors=True)
+                continue
             if target.is_dir():
                 shutil.rmtree(target)
             else:
                 target.unlink()
         shutil.move(str(item), str(target))
+
+def _strip_single_root(dest: Path) -> bool:
+    try:
+        children = [c for c in dest.iterdir() if c.name.lower() != "version.txt"]
+    except OSError:
+        return False
+
+    if len(children) != 1 or not children[0].is_dir():
+        return False
+
+    root = children[0]
+    _move_contents(root, dest)
     shutil.rmtree(root, ignore_errors=True)
+    return True
 
 def _extract_zip(archive: Path, dest: Path) -> int:
     extracted = 0
@@ -75,23 +91,8 @@ def _extract_zip(archive: Path, dest: Path) -> int:
         if not names:
             raise ValueError("ZIP vazio — nenhum arquivo encontrado.")
 
-        normalized = [n.replace("\\", "/") for n in names]
-        top_levels = {n.split("/")[0] for n in normalized if n.split("/")[0]}
-
-        strip_prefix: str | None = None
-        if len(top_levels) == 1:
-            root = next(iter(top_levels))
-            if all(n.startswith(root + "/") for n in normalized):
-                strip_prefix = root
-
         for member in zf.infolist():
             rel = member.filename.replace("\\", "/")
-            if strip_prefix:
-                if rel == strip_prefix or rel == strip_prefix + "/":
-                    continue
-                if rel.startswith(strip_prefix + "/"):
-                    rel = rel[len(strip_prefix) + 1 :]
-
             if not rel or rel.endswith("/"):
                 (dest / rel).mkdir(parents=True, exist_ok=True)
                 continue
@@ -105,6 +106,7 @@ def _extract_zip(archive: Path, dest: Path) -> int:
     return extracted
 
 def _extract_with_7zip(archive: Path, dest: Path, seven_zip: str) -> int:
+    before = {p for p in dest.rglob("*")} if dest.exists() else set()
     result = subprocess.run(
         [seven_zip, "x", str(archive), f"-o{dest}", "-y"],
         capture_output=True,
@@ -113,10 +115,11 @@ def _extract_with_7zip(archive: Path, dest: Path, seven_zip: str) -> int:
     )
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "Falha ao extrair com 7-Zip.")
-    _strip_single_root(dest)
-    return sum(1 for _ in dest.rglob("*") if _.is_file())
+    after = {p for p in dest.rglob("*")}
+    return max(1, len(after - before))
 
 def _extract_with_winrar(archive: Path, dest: Path, winrar: str) -> int:
+    before = {p for p in dest.rglob("*")} if dest.exists() else set()
     result = subprocess.run(
         [winrar, "x", "-y", str(archive), str(dest) + "\\"],
         capture_output=True,
@@ -125,45 +128,30 @@ def _extract_with_winrar(archive: Path, dest: Path, winrar: str) -> int:
     )
     if result.returncode != 0:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "Falha ao extrair com WinRAR.")
-    _strip_single_root(dest)
-    return sum(1 for _ in dest.rglob("*") if _.is_file())
+    after = {p for p in dest.rglob("*")}
+    return max(1, len(after - before))
 
-def extract_archive(archive: Path, dest: Path) -> int:
-    """
-    Extrai ZIP/RAR/7z para dest, removendo pasta raiz duplicada quando houver.
-    Retorna quantidade de arquivos extraídos.
-    """
-    if not archive.exists() or archive.stat().st_size < 4:
-        raise ValueError("Arquivo baixado está vazio ou incompleto.")
-
+def _extract_one(archive: Path, dest: Path) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     kind = detect_archive_type(archive)
 
-    if kind == "zip":
-        extracted = _extract_zip(archive, dest)
-        if extracted == 0:
-            raise ValueError("Nenhum arquivo foi extraído do ZIP.")
-        return extracted
+    if kind == "zip" or archive.suffix.lower() == ".zip":
+        return _extract_zip(archive, dest)
 
-    if kind in ("rar", "7z"):
+    if kind in ("rar", "7z") or archive.suffix.lower() in {".rar", ".7z"}:
         seven = _find_7zip()
         if seven:
-            extracted = _extract_with_7zip(archive, dest, seven)
-            if extracted == 0:
-                raise ValueError("Nenhum arquivo foi extraído do arquivo.")
-            return extracted
+            return _extract_with_7zip(archive, dest, seven)
 
-        if kind == "rar":
+        if kind == "rar" or archive.suffix.lower() == ".rar":
             winrar = _find_winrar()
             if winrar:
-                extracted = _extract_with_winrar(archive, dest, winrar)
-                if extracted == 0:
-                    raise ValueError("Nenhum arquivo foi extraído do RAR.")
-                return extracted
+                return _extract_with_winrar(archive, dest, winrar)
 
-        tool = "7-Zip ou WinRAR" if kind == "rar" else "7-Zip"
+        tool = "7-Zip ou WinRAR" if (kind == "rar" or archive.suffix.lower() == ".rar") else "7-Zip"
         raise ValueError(
-            f"O arquivo é {kind.upper()}, mas {tool} não foi encontrado.\n\n"
+            f"O arquivo é {archive.suffix.upper().lstrip('.') or kind.upper()}, "
+            f"mas {tool} não foi encontrado.\n\n"
             "Instale o 7-Zip (https://www.7-zip.org/) ou reenvie o jogo como ZIP."
         )
 
@@ -171,3 +159,122 @@ def extract_archive(archive: Path, dest: Path) -> int:
         "Formato de arquivo não suportado. "
         "Use ZIP ou RAR (com 7-Zip instalado)."
     )
+
+def _find_nested_archives(root: Path) -> list[Path]:
+    found: list[Path] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in ARCHIVE_SUFFIXES:
+            found.append(path)
+            continue
+        if detect_archive_type(path) in {"zip", "rar", "7z"}:
+            found.append(path)
+    return found
+
+def _extract_nested_archives(root: Path, max_passes: int = 5) -> None:
+    for _ in range(max_passes):
+        nested = _find_nested_archives(root)
+        if not nested:
+            return
+
+        progress = False
+        for archive in nested:
+            if not archive.exists():
+                continue
+            target_dir = archive.parent
+            try:
+                _extract_one(archive, target_dir)
+                archive.unlink(missing_ok=True)
+                progress = True
+            except Exception:
+                continue
+
+        if not progress:
+            return
+
+def _find_exe(root: Path, preferred: Optional[str] = None) -> Optional[Path]:
+    if preferred:
+        preferred_name = Path(preferred).name.lower()
+        matches = [p for p in root.rglob("*.exe") if p.name.lower() == preferred_name]
+        if matches:
+            return sorted(matches, key=lambda p: len(p.relative_to(root).parts))[0]
+
+    exes = [p for p in root.rglob("*.exe") if p.is_file()]
+    if not exes:
+        return None
+
+    ignore = {
+        "unitycrashhandler64.exe",
+        "unitycrashhandler32.exe",
+        "crashreportclient.exe",
+        "uninstall.exe",
+        "unins000.exe",
+        "vc_redist.x64.exe",
+        "vc_redist.x86.exe",
+        "dxsetup.exe",
+    }
+    filtered = [p for p in exes if p.name.lower() not in ignore]
+    candidates = filtered or exes
+    return sorted(candidates, key=lambda p: (len(p.relative_to(root).parts), p.name.lower()))[0]
+
+def _promote_game_root(dest: Path, preferred_executable: Optional[str] = None) -> Optional[str]:
+    for _ in range(6):
+        if not _strip_single_root(dest):
+            break
+
+    exe = _find_exe(dest, preferred_executable)
+    if not exe:
+        return None
+
+    game_root = exe.parent
+    if game_root.resolve() != dest.resolve():
+        _move_contents(game_root, dest)
+        shutil.rmtree(game_root, ignore_errors=True)
+
+        for folder in sorted(dest.rglob("*"), reverse=True):
+            if folder.is_dir():
+                try:
+                    next(folder.iterdir())
+                except StopIteration:
+                    folder.rmdir()
+                except OSError:
+                    pass
+
+    for leftover in list(dest.glob("*")):
+        if leftover.is_file() and (
+            leftover.suffix.lower() in ARCHIVE_SUFFIXES
+            or detect_archive_type(leftover) in {"zip", "rar", "7z"}
+        ):
+            leftover.unlink(missing_ok=True)
+
+    exe_final = dest / exe.name
+    if exe_final.exists():
+        return exe.name
+
+    found = _find_exe(dest, preferred_executable)
+    if found:
+        return str(found.relative_to(dest)).replace("\\", "/")
+    return None
+
+def extract_archive(
+    archive: Path,
+    dest: Path,
+    preferred_executable: Optional[str] = None,
+) -> tuple[int, Optional[str]]:
+    if not archive.exists() or archive.stat().st_size < 4:
+        raise ValueError("Arquivo baixado está vazio ou incompleto.")
+
+    dest.mkdir(parents=True, exist_ok=True)
+    extracted = _extract_one(archive, dest)
+    if extracted == 0:
+        raise ValueError("Nenhum arquivo foi extraído.")
+
+    _extract_nested_archives(dest)
+    exe_rel = _promote_game_root(dest, preferred_executable)
+
+    file_count = sum(1 for p in dest.rglob("*") if p.is_file())
+    if file_count == 0:
+        raise ValueError("Nenhum arquivo ficou na pasta após a extração.")
+
+    return file_count, exe_rel

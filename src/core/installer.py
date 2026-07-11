@@ -91,10 +91,13 @@ class Installer:
             game.download_speed = ""
             self._notify(game, on_progress)
 
-            extract_archive(archive_path, game_dir)
+            extract_archive(archive_path, game_dir, preferred_executable=game.executable)
             self._write_version(game_dir, game.version)
 
-            if not game.executable:
+            detected = self._find_executable(game_dir, preferred=game.executable)
+            if detected:
+                game.executable = detected
+            elif not game.executable:
                 game.executable = self._find_executable(game_dir)
 
             game.installed_version = game.version
@@ -168,18 +171,35 @@ class Installer:
     def _write_version(self, game_dir: Path, ver: str) -> None:
         (game_dir / "version.txt").write_text(ver, encoding="utf-8")
 
-    def _find_executable(self, game_dir: Path) -> Optional[str]:
-        exes = list(game_dir.glob("*.exe"))
-        if exes:
-            return exes[0].name
+    def _find_executable(self, game_dir: Path, preferred: Optional[str] = None) -> Optional[str]:
+        if preferred:
+            preferred_name = Path(preferred).name.lower()
+            matches = [
+                p for p in game_dir.rglob("*.exe")
+                if p.is_file() and p.name.lower() == preferred_name
+            ]
+            if matches:
+                best = sorted(matches, key=lambda p: len(p.relative_to(game_dir).parts))[0]
+                return str(best.relative_to(game_dir)).replace("\\", "/")
 
-        for sub in game_dir.iterdir():
-            if sub.is_dir():
-                sub_exes = list(sub.glob("*.exe"))
-                if sub_exes:
-                    return str(sub_exes[0].relative_to(game_dir)).replace("\\", "/")
+        ignore = {
+            "unitycrashhandler64.exe",
+            "unitycrashhandler32.exe",
+            "crashreportclient.exe",
+            "uninstall.exe",
+            "unins000.exe",
+        }
+        exes = [
+            p for p in game_dir.rglob("*.exe")
+            if p.is_file() and p.name.lower() not in ignore
+        ]
+        if not exes:
+            exes = [p for p in game_dir.rglob("*.exe") if p.is_file()]
+        if not exes:
+            return None
 
-        return None
+        best = sorted(exes, key=lambda p: (len(p.relative_to(game_dir).parts), p.name.lower()))[0]
+        return str(best.relative_to(game_dir)).replace("\\", "/")
 
     def remove_installation(self, game: Game) -> None:
         if game.install_path and os.path.isdir(game.install_path):

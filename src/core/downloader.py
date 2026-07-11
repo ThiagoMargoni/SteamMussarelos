@@ -36,7 +36,6 @@ def normalize_gdrive_url(url: str) -> str:
     return url
 
 def _parse_gdrive_form(html: str) -> dict[str, str]:
-    """Extrai campos hidden do formulário de confirmação (arquivos grandes)."""
     fields: dict[str, str] = {}
     for name, value in re.findall(
         r'<input[^>]+type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"',
@@ -65,7 +64,6 @@ def download_file(
     on_chunk: Optional[Callable[[int, int], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
 ) -> Path:
-    """Baixa o arquivo e retorna o caminho final (pode mudar a extensão)."""
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
 
