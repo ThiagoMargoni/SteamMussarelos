@@ -48,7 +48,6 @@ class GameCard(ctk.CTkFrame):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # ── Ícone ──
         self.icon_frame = ctk.CTkFrame(
             self,
             width=ICON_SIZE + 16,
@@ -69,7 +68,6 @@ class GameCard(ctk.CTkFrame):
         )
         self.icon_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        # ── Info ──
         info = ctk.CTkFrame(self, fg_color="transparent")
         info.grid(row=0, column=1, sticky="nsew", pady=12)
 
@@ -106,7 +104,6 @@ class GameCard(ctk.CTkFrame):
         )
         self.status_badge.pack(side="left")
 
-        # ── Botões ──
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.grid(row=0, column=2, padx=(0, 14), pady=12, sticky="e")
 

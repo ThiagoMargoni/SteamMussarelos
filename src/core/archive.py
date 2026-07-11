@@ -6,7 +6,6 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
-
 def detect_archive_type(path: Path) -> str:
     with open(path, "rb") as f:
         magic = f.read(8)
@@ -21,7 +20,6 @@ def detect_archive_type(path: Path) -> str:
         return "gzip"
     return "unknown"
 
-
 def _find_7zip() -> Optional[str]:
     candidates = [
         shutil.which("7z"),
@@ -33,7 +31,6 @@ def _find_7zip() -> Optional[str]:
         if path and Path(path).is_file():
             return path
     return None
-
 
 def _find_winrar() -> Optional[str]:
     candidates = [
@@ -50,7 +47,6 @@ def _find_winrar() -> Optional[str]:
             return path
     return None
 
-
 def _strip_single_root(dest: Path) -> None:
     """Se a extração criou uma única pasta raiz, sobe o conteúdo um nível."""
     try:
@@ -62,7 +58,6 @@ def _strip_single_root(dest: Path) -> None:
         return
 
     root = children[0]
-    # Evita mover se a pasta raiz tem o mesmo nome do destino (já está ok)
     for item in list(root.iterdir()):
         target = dest / item.name
         if target.exists():
@@ -72,7 +67,6 @@ def _strip_single_root(dest: Path) -> None:
                 target.unlink()
         shutil.move(str(item), str(target))
     shutil.rmtree(root, ignore_errors=True)
-
 
 def _extract_zip(archive: Path, dest: Path) -> int:
     extracted = 0
@@ -110,7 +104,6 @@ def _extract_zip(archive: Path, dest: Path) -> int:
 
     return extracted
 
-
 def _extract_with_7zip(archive: Path, dest: Path, seven_zip: str) -> int:
     result = subprocess.run(
         [seven_zip, "x", str(archive), f"-o{dest}", "-y"],
@@ -123,9 +116,7 @@ def _extract_with_7zip(archive: Path, dest: Path, seven_zip: str) -> int:
     _strip_single_root(dest)
     return sum(1 for _ in dest.rglob("*") if _.is_file())
 
-
 def _extract_with_winrar(archive: Path, dest: Path, winrar: str) -> int:
-    # UnRAR: e = extract without paths, x = extract with full paths
     result = subprocess.run(
         [winrar, "x", "-y", str(archive), str(dest) + "\\"],
         capture_output=True,
@@ -136,7 +127,6 @@ def _extract_with_winrar(archive: Path, dest: Path, winrar: str) -> int:
         raise ValueError(result.stderr.strip() or result.stdout.strip() or "Falha ao extrair com WinRAR.")
     _strip_single_root(dest)
     return sum(1 for _ in dest.rglob("*") if _.is_file())
-
 
 def extract_archive(archive: Path, dest: Path) -> int:
     """

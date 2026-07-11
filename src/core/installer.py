@@ -16,7 +16,6 @@ from src.utils import format_bytes, format_speed
 
 ProgressCallback = Callable[[Game], None]
 
-
 class Installer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings

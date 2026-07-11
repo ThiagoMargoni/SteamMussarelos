@@ -14,7 +14,6 @@ USER_AGENT = (
 )
 GDRIVE_DOWNLOAD = "https://drive.usercontent.google.com/download"
 
-
 def extract_gdrive_file_id(url: str) -> Optional[str]:
     if "drive.google.com" not in url and "docs.google.com" not in url and "drive.usercontent.google.com" not in url:
         return None
@@ -30,13 +29,11 @@ def extract_gdrive_file_id(url: str) -> Optional[str]:
 
     return None
 
-
 def normalize_gdrive_url(url: str) -> str:
     file_id = extract_gdrive_file_id(url)
     if file_id:
         return f"{GDRIVE_DOWNLOAD}?id={file_id}&export=download"
     return url
-
 
 def _parse_gdrive_form(html: str) -> dict[str, str]:
     """Extrai campos hidden do formulário de confirmação (arquivos grandes)."""
@@ -55,14 +52,12 @@ def _parse_gdrive_form(html: str) -> dict[str, str]:
         fields.setdefault(name, value)
     return fields
 
-
 def _is_html_response(response: requests.Response, peek: bytes = b"") -> bool:
     content_type = (response.headers.get("content-type") or "").lower()
     if "text/html" in content_type:
         return True
     sample = peek[:200].lower()
     return b"<html" in sample or b"<!doctype html" in sample
-
 
 def download_file(
     url: str,
@@ -80,7 +75,6 @@ def download_file(
 
     return _download_stream(session, url, dest, on_chunk, cancel_check)
 
-
 def _download_gdrive(
     session: requests.Session,
     file_id: str,
@@ -93,7 +87,6 @@ def _download_gdrive(
     response = session.get(GDRIVE_DOWNLOAD, params=params, stream=True, timeout=120)
     response.raise_for_status()
 
-    # Arquivos grandes: Drive devolve HTML pedindo "Download anyway"
     if _is_html_response(response):
         html = response.text
         response.close()
@@ -123,12 +116,10 @@ def _download_gdrive(
                 "Confirme que o link está público e tente novamente."
             )
 
-    # Detecta nome do arquivo pelo header (útil para .rar / .zip)
     disposition = response.headers.get("content-disposition") or ""
     filename_match = re.search(r'filename="?([^";]+)"?', disposition)
     suggested_name = filename_match.group(1) if filename_match else dest.name
 
-    # Mantém a extensão real do arquivo baixado
     suffix = Path(suggested_name).suffix.lower()
     if suffix and dest.suffix.lower() != suffix:
         dest = dest.with_suffix(suffix)
@@ -151,7 +142,6 @@ def _download_gdrive(
 
     return dest
 
-
 def _download_stream(
     session: requests.Session,
     url: str,
@@ -165,7 +155,6 @@ def _download_stream(
     _stream_to_file(response, dest, total, on_chunk, cancel_check)
     response.close()
     return dest
-
 
 def _stream_to_file(
     response: requests.Response,
