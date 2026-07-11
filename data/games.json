@@ -10,6 +10,13 @@
       "download": "https://drive.google.com/file/d/1Aznc14pMtGxY9yCS_JqoMppieRs7Stxn/view",
       "icon": "icons/pummel-party.jpeg",
       "executable": "PummelParty.exe"
+    },
+    {
+      "name": "MECCHA CHAMELEON",
+      "version": "2.5.0",
+      "download": "https://drive.google.com/file/d/1l7gvwGluJukdIFD6kKv7c5y0g6wOy5O_/view",
+      "icon": "icons/meccha-chameleon.jpeg",
+      "executable": "PenguinHotel.exe"
     }
   ]
 }
