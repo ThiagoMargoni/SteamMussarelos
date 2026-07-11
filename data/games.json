@@ -3,5 +3,13 @@
     "version": "1.0.0",
     "download": "https://github.com/ThiagoMargoni/SteamMussarelos/releases/latest"
   },
-  "games": []
+  "games": [
+    {
+      "name": "Pummel Party",
+      "version": "1.0.0",
+      "download": "https://drive.google.com/file/d/1Aznc14pMtGxY9yCS_JqoMppieRs7Stxn/view",
+      "icon": "icons/pummel-party.jpeg",
+      "executable": "PummelParty.exe"
+    }
+  ]
 }
