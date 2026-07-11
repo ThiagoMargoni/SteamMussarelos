@@ -5,16 +5,17 @@ import shutil
 import tempfile
 import threading
 import time
-import zipfile
 from pathlib import Path
 from typing import Callable, Optional
 
+from src.core.archive import extract_archive
 from src.core.downloader import download_file
 from src.core.settings import Settings
 from src.models.game import DownloadState, Game
 from src.utils import format_bytes, format_speed
 
 ProgressCallback = Callable[[Game], None]
+
 
 class Installer:
     def __init__(self, settings: Settings) -> None:
@@ -41,7 +42,6 @@ class Installer:
         def _run() -> None:
             try:
                 self._do_install(game, cancel, on_progress, is_update)
-
             finally:
                 self._active.pop(game.name, None)
                 self._cancel_flags.pop(game.name, None)
@@ -80,18 +80,19 @@ class Installer:
         game_dir.mkdir(parents=True, exist_ok=True)
 
         tmp_dir = Path(tempfile.mkdtemp())
-        zip_path = tmp_dir / f"{game.name}.zip"
+        archive_path = tmp_dir / f"{game.name}.bin"
 
         try:
-            self._download(game, zip_path, cancel, on_progress)
+            archive_path = self._download(game, archive_path, cancel, on_progress)
             if cancel.is_set():
                 return
 
             game.download_state = DownloadState.EXTRACTING
             game.download_progress = 0.0
+            game.download_speed = ""
             self._notify(game, on_progress)
 
-            self._extract_smart(zip_path, game_dir)
+            extract_archive(archive_path, game_dir)
             self._write_version(game_dir, game.version)
 
             if not game.executable:
@@ -131,7 +132,7 @@ class Installer:
         dest: Path,
         cancel: threading.Event,
         on_progress: Optional[ProgressCallback],
-    ) -> None:
+    ) -> Path:
         start = time.time()
         last_notify = start
 
@@ -140,7 +141,7 @@ class Installer:
             now = time.time()
             if now - last_notify < 0.15 and total > 0 and downloaded < total:
                 return
-            
+
             elapsed = now - start
             speed = downloaded / elapsed if elapsed > 0 else 0
             game.download_speed = format_speed(speed)
@@ -148,14 +149,13 @@ class Installer:
             if total:
                 game.download_progress = (downloaded / total) * 100
                 game.download_size = f"{format_bytes(downloaded)} / {format_bytes(total)}"
-
             else:
                 game.download_progress = min(99.0, max(1.0, downloaded / 1024 / 1024))
                 game.download_size = format_bytes(downloaded)
             self._notify(game, on_progress)
             last_notify = now
 
-        download_file(
+        final_path = download_file(
             game.download,
             dest,
             on_chunk=on_chunk,
@@ -164,57 +164,7 @@ class Installer:
 
         game.download_progress = 100.0
         self._notify(game, on_progress)
-
-    def _extract_smart(self, zip_path: Path, dest: Path) -> None:
-        if not zip_path.exists() or zip_path.stat().st_size < 4:
-            raise ValueError("Arquivo baixado está vazio ou incompleto.")
-
-        with open(zip_path, "rb") as f:
-            magic = f.read(4)
-
-        if magic[:2] != b"PK":
-            raise ValueError(
-                "O download não é um ZIP válido. "
-                "Verifique se o link do Google Drive está correto e público."
-            )
-
-        extracted = 0
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            names = [n for n in zf.namelist() if n.strip()]
-            if not names:
-                raise ValueError("ZIP vazio — nenhum arquivo encontrado.")
-
-            normalized = [n.replace("\\", "/") for n in names]
-            top_levels = {n.split("/")[0] for n in normalized if n.split("/")[0]}
-
-            strip_prefix: str | None = None
-            if len(top_levels) == 1:
-                root = next(iter(top_levels))
-                # Só remove pasta raiz se TODOS os arquivos estão dentro de root/
-                if all(n.startswith(root + "/") for n in normalized):
-                    strip_prefix = root
-
-            for member in zf.infolist():
-                rel = member.filename.replace("\\", "/")
-                if strip_prefix:
-                    if rel == strip_prefix or rel == strip_prefix + "/":
-                        continue
-                    if rel.startswith(strip_prefix + "/"):
-                        rel = rel[len(strip_prefix) + 1 :]
-
-                if not rel or rel.endswith("/"):
-                    target = dest / rel
-                    target.mkdir(parents=True, exist_ok=True)
-                    continue
-
-                target = dest / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(member) as src, open(target, "wb") as out:
-                    shutil.copyfileobj(src, out)
-                extracted += 1
-
-        if extracted == 0:
-            raise ValueError("Nenhum arquivo foi extraído do ZIP.")
+        return final_path
 
     def _write_version(self, game_dir: Path, ver: str) -> None:
         (game_dir / "version.txt").write_text(ver, encoding="utf-8")
@@ -223,19 +173,19 @@ class Installer:
         exes = list(game_dir.glob("*.exe"))
         if exes:
             return exes[0].name
-        
+
         for sub in game_dir.iterdir():
             if sub.is_dir():
                 sub_exes = list(sub.glob("*.exe"))
                 if sub_exes:
                     return str(sub_exes[0].relative_to(game_dir)).replace("\\", "/")
-                
+
         return None
 
     def remove_installation(self, game: Game) -> None:
         if game.install_path and os.path.isdir(game.install_path):
             shutil.rmtree(game.install_path, ignore_errors=True)
-            
+
         game.installed_version = None
         game.install_path = None
         game.update_status()

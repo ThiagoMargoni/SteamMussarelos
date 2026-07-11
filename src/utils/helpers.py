@@ -18,7 +18,7 @@ def normalize_gdrive_url(url: str) -> str:
         file_id = parsed.get("id", [None])[0]
 
     if file_id:
-        return f"https://drive.google.com/uc?export=download&id={file_id}"
+        return f"https://drive.usercontent.google.com/download?id={file_id}&export=download"
     return url
 
 def format_bytes(num: int) -> str:

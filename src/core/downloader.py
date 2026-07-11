@@ -7,16 +7,16 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
-from src.utils.helpers import format_bytes, format_speed
-
 CHUNK_SIZE = 256 * 1024
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 )
+GDRIVE_DOWNLOAD = "https://drive.usercontent.google.com/download"
+
 
 def extract_gdrive_file_id(url: str) -> Optional[str]:
-    if "drive.google.com" not in url and "docs.google.com" not in url:
+    if "drive.google.com" not in url and "docs.google.com" not in url and "drive.usercontent.google.com" not in url:
         return None
 
     if "/file/d/" in url:
@@ -30,36 +30,47 @@ def extract_gdrive_file_id(url: str) -> Optional[str]:
 
     return None
 
+
 def normalize_gdrive_url(url: str) -> str:
     file_id = extract_gdrive_file_id(url)
-
     if file_id:
-        return f"https://drive.google.com/uc?export=download&id={file_id}"
-    
+        return f"{GDRIVE_DOWNLOAD}?id={file_id}&export=download"
     return url
 
-def _gdrive_confirm_token(response: requests.Response) -> Optional[str]:
-    for key, value in response.cookies.items():
-        if key.startswith("download_warning"):
-            return value
 
-    text = response.text[:8192] if response.text else ""
-    match = re.search(r"confirm=([0-9A-Za-z_]+)", text)
-    if match:
-        return match.group(1)
+def _parse_gdrive_form(html: str) -> dict[str, str]:
+    """Extrai campos hidden do formulário de confirmação (arquivos grandes)."""
+    fields: dict[str, str] = {}
+    for name, value in re.findall(
+        r'<input[^>]+type="hidden"[^>]*name="([^"]+)"[^>]*value="([^"]*)"',
+        html,
+        flags=re.IGNORECASE,
+    ):
+        fields[name] = value
+    for name, value in re.findall(
+        r'<input[^>]+name="([^"]+)"[^>]*value="([^"]*)"[^>]*type="hidden"',
+        html,
+        flags=re.IGNORECASE,
+    ):
+        fields.setdefault(name, value)
+    return fields
 
-    match = re.search(r'id="download-form"[^>]*action="[^"]*confirm=([0-9A-Za-z_]+)', text)
-    if match:
-        return match.group(1)
 
-    return None
+def _is_html_response(response: requests.Response, peek: bytes = b"") -> bool:
+    content_type = (response.headers.get("content-type") or "").lower()
+    if "text/html" in content_type:
+        return True
+    sample = peek[:200].lower()
+    return b"<html" in sample or b"<!doctype html" in sample
+
 
 def download_file(
     url: str,
     dest: Path,
     on_chunk: Optional[Callable[[int, int], None]] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
-) -> int:
+) -> Path:
+    """Baixa o arquivo e retorna o caminho final (pode mudar a extensão)."""
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
 
@@ -69,33 +80,58 @@ def download_file(
 
     return _download_stream(session, url, dest, on_chunk, cancel_check)
 
+
 def _download_gdrive(
     session: requests.Session,
     file_id: str,
     dest: Path,
     on_chunk: Optional[Callable[[int, int], None]],
     cancel_check: Optional[Callable[[], bool]],
-) -> int:
-    base_url = "https://drive.google.com/uc"
-    params: dict[str, str] = {"export": "download", "id": file_id}
+) -> Path:
+    params: dict[str, str] = {"id": file_id, "export": "download"}
 
-    response = session.get(base_url, params=params, stream=True, timeout=60)
+    response = session.get(GDRIVE_DOWNLOAD, params=params, stream=True, timeout=120)
     response.raise_for_status()
 
-    content_type = (response.headers.get("content-type") or "").lower()
-    if "text/html" in content_type:
-        token = _gdrive_confirm_token(response)
+    # Arquivos grandes: Drive devolve HTML pedindo "Download anyway"
+    if _is_html_response(response):
+        html = response.text
         response.close()
-        if token:
-            params["confirm"] = token
-            response = session.get(base_url, params=params, stream=True, timeout=60)
-            response.raise_for_status()
+        fields = _parse_gdrive_form(html)
 
-        else:
+        if not fields.get("confirm") and "can't scan" not in html.lower() and "virus" not in html.lower():
             raise ValueError(
-                "Google Drive exige confirmação de download. "
+                "Google Drive bloqueou o download. "
                 "Verifique se o arquivo está público ('Qualquer pessoa com o link')."
             )
+
+        params = {
+            "id": fields.get("id", file_id),
+            "export": fields.get("export", "download"),
+            "confirm": fields.get("confirm", "t"),
+        }
+        if fields.get("uuid"):
+            params["uuid"] = fields["uuid"]
+
+        response = session.get(GDRIVE_DOWNLOAD, params=params, stream=True, timeout=120)
+        response.raise_for_status()
+
+        if _is_html_response(response):
+            response.close()
+            raise ValueError(
+                "Google Drive ainda exige confirmação. "
+                "Confirme que o link está público e tente novamente."
+            )
+
+    # Detecta nome do arquivo pelo header (útil para .rar / .zip)
+    disposition = response.headers.get("content-disposition") or ""
+    filename_match = re.search(r'filename="?([^";]+)"?', disposition)
+    suggested_name = filename_match.group(1) if filename_match else dest.name
+
+    # Mantém a extensão real do arquivo baixado
+    suffix = Path(suggested_name).suffix.lower()
+    if suffix and dest.suffix.lower() != suffix:
+        dest = dest.with_suffix(suffix)
 
     total = int(response.headers.get("content-length", 0))
     downloaded = _stream_to_file(response, dest, total, on_chunk, cancel_check)
@@ -107,13 +143,14 @@ def _download_gdrive(
     with open(dest, "rb") as f:
         header = f.read(512)
 
-    if header[:2] != b"PK" and b"<html" in header.lower():
+    if b"<html" in header.lower() or b"<!doctype" in header.lower():
         raise ValueError(
             "Google Drive retornou uma página HTML em vez do arquivo. "
-            "Confirme que o link está público e aponta para um ZIP."
+            "Confirme que o link está público."
         )
 
-    return downloaded
+    return dest
+
 
 def _download_stream(
     session: requests.Session,
@@ -121,13 +158,14 @@ def _download_stream(
     dest: Path,
     on_chunk: Optional[Callable[[int, int], None]],
     cancel_check: Optional[Callable[[], bool]],
-) -> int:
-    response = session.get(url, stream=True, timeout=60)
+) -> Path:
+    response = session.get(url, stream=True, timeout=120)
     response.raise_for_status()
     total = int(response.headers.get("content-length", 0))
-    downloaded = _stream_to_file(response, dest, total, on_chunk, cancel_check)
+    _stream_to_file(response, dest, total, on_chunk, cancel_check)
     response.close()
-    return downloaded
+    return dest
+
 
 def _stream_to_file(
     response: requests.Response,
@@ -143,13 +181,10 @@ def _stream_to_file(
         for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
             if cancel_check and cancel_check():
                 raise InterruptedError("Download cancelado.")
-            
             if not chunk:
                 continue
-            
             f.write(chunk)
             downloaded += len(chunk)
-
             if on_chunk:
                 on_chunk(downloaded, total)
 
