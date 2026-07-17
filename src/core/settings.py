@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 APP_NAME = "SteamMussarelos"
-LAUNCHER_VERSION = "1.0.0"
+LAUNCHER_VERSION = "1.1.0"
 
 REMOTE_CATALOG_URL = "https://raw.githubusercontent.com/ThiagoMargoni/SteamMussarelos/master/data/games.json"
 
@@ -20,6 +20,9 @@ class Settings:
     def __init__(self) -> None:
         self._path = _app_data_dir() / "config.json"
         self._data: dict[str, Any] = self._load()
+        if self._data.get("launcher_version") != LAUNCHER_VERSION:
+            self._data["launcher_version"] = LAUNCHER_VERSION
+            self.save()
 
     def _load(self) -> dict[str, Any]:
         if self._path.exists():
@@ -58,11 +61,12 @@ class Settings:
 
     @property
     def launcher_version(self) -> str:
-        return self._data.get("launcher_version", LAUNCHER_VERSION)
+        return LAUNCHER_VERSION
 
     @launcher_version.setter
     def launcher_version(self, value: str) -> None:
         self._data["launcher_version"] = value
+        self.save()
 
     @property
     def first_run_complete(self) -> bool:

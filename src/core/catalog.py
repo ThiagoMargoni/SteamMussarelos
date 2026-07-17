@@ -10,7 +10,7 @@ import requests
 from packaging import version
 
 from src.core.install_state import is_installed_at, sync_game_with_disk
-from src.core.settings import REMOTE_CATALOG_URL, Settings
+from src.core.settings import LAUNCHER_VERSION, REMOTE_CATALOG_URL, Settings
 from src.models.game import Catalog, Game, LauncherInfo
 from src.utils.paths import resolve_resource, resource_path
 from src.utils.remote_assets import resolve_icon_url
@@ -155,15 +155,13 @@ class CatalogService:
     def launcher_update_available(self) -> bool:
         if not self._catalog:
             return False
-        
-        remote = self._catalog.launcher.latest_version
-        local = self.settings.launcher_version
 
+        remote = self._catalog.launcher.latest_version
+        local = LAUNCHER_VERSION
         if not remote:
             return False
-        
+
         try:
             return version.parse(remote) > version.parse(local)
-        
         except Exception:
             return remote != local

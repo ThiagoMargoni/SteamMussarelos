@@ -150,11 +150,14 @@ class GameCard(ctk.CTkFrame):
         self.uninstall_btn.pack(pady=3)
 
         self._load_icon()
+        self._last_signature: tuple | None = None
         self.refresh()
 
     def _load_icon(self) -> None:
         def _on_ready(img: Optional[ctk.CTkImage]) -> None:
             def _apply() -> None:
+                if not self.winfo_exists():
+                    return
                 self._icon_ref = apply_icon_to_label(self.icon_label, img, placeholder="?")
 
             self.after(0, _apply)
@@ -170,7 +173,22 @@ class GameCard(ctk.CTkFrame):
         else:
             on_install(self.game)
 
-    def refresh(self) -> None:
+    def _signature(self) -> tuple:
+        g = self.game
+        return (
+            g.status,
+            g.installed_version,
+            g.version,
+            g.download_state,
+            round(g.download_progress),
+        )
+
+    def refresh(self, force: bool = False) -> None:
+        sig = self._signature()
+        if not force and sig == self._last_signature:
+            return
+        self._last_signature = sig
+
         g = self.game
         installed = g.installed_version or "—"
         self.version_label.configure(text=f"Versão instalada: {installed}   ·   Remota: {g.version}")
@@ -197,7 +215,10 @@ class GameCard(ctk.CTkFrame):
             self.action_btn.configure(text="Instalar", fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"])
 
         self.action_btn.configure(state="disabled" if busy else "normal")
-        self.secondary_btn.configure(state="normal" if g.status == GameStatus.UPDATE_AVAILABLE and not busy else "disabled")
+        self.secondary_btn.configure(
+            state="normal" if g.status == GameStatus.UPDATE_AVAILABLE and not busy else "disabled"
+        )
 
         can_uninstall = g.status in (GameStatus.INSTALLED, GameStatus.UPDATE_AVAILABLE) and not busy
         self.uninstall_btn.configure(state="normal" if can_uninstall else "disabled")
+

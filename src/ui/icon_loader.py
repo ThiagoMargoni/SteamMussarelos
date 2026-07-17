@@ -22,6 +22,9 @@ from src.ui.theme import COLORS, ICON_SIZE
 from src.utils.paths import resolve_resource
 from src.utils.remote_assets import resolve_icon_url
 
+_memory_cache: dict[str, ctk.CTkImage] = {}
+_memory_lock = threading.Lock()
+
 def _icon_cache_dir() -> Path:
     base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home())
     path = Path(base) / "SteamMussarelos" / "icon_cache"
@@ -41,13 +44,27 @@ def load_game_icon(
     size: int = ICON_SIZE,
     catalog_url: str = REMOTE_CATALOG_URL,
 ) -> None:
+    if not icon_path:
+        on_ready(None)
+        return
+
+    cache_key = f"{icon_path}|{size}"
+    with _memory_lock:
+        cached = _memory_cache.get(cache_key)
+    if cached is not None:
+        on_ready(cached)
+        return
+
     def _work() -> None:
         try:
             image = _fetch_image(icon_path, size, catalog_url)
             if image is None:
                 on_ready(None)
                 return
-            on_ready(_to_ctk_image(image, size))
+            ctk_img = _to_ctk_image(image, size)
+            with _memory_lock:
+                _memory_cache[cache_key] = ctk_img
+            on_ready(ctk_img)
         except Exception:
             on_ready(None)
 
@@ -79,30 +96,39 @@ def _fetch_image(
 def _load_remote(url: str) -> Optional[Image.Image]:
     cache = _cache_path_for_url(url)
 
-    try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        data = resp.content
-        if data:
-            try:
-                cache.write_bytes(data)
-            except OSError:
-                pass
-            img = Image.open(io.BytesIO(data))
-            img.load()
-            return img
-    except Exception:
-        pass
-
     if cache.exists() and cache.stat().st_size > 0:
         try:
             img = Image.open(cache)
             img.load()
+            threading.Thread(target=_refresh_cache, args=(url, cache), daemon=True).start()
             return img
         except Exception:
             cache.unlink(missing_ok=True)
 
-    return None
+    return _download_to_cache(url, cache)
+
+def _refresh_cache(url: str, cache: Path) -> None:
+    try:
+        _download_to_cache(url, cache)
+    except Exception:
+        pass
+
+def _download_to_cache(url: str, cache: Path) -> Optional[Image.Image]:
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.content
+        if not data:
+            return None
+        try:
+            cache.write_bytes(data)
+        except OSError:
+            pass
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        return img
+    except Exception:
+        return None
 
 def _to_ctk_image(img: Image.Image, size: int) -> ctk.CTkImage:
     return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))

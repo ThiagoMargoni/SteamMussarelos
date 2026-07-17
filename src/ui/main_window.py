@@ -11,7 +11,8 @@ from src.core.folder_setup import apply_games_folder
 from src.core.install_state import sync_game_with_disk
 from src.core.installer import Installer
 from src.core.process_manager import ProcessManager
-from src.core.settings import Settings
+from src.core.settings import LAUNCHER_VERSION, Settings
+from src.core.updater import apply_launcher_update
 from src.models.game import DownloadState, Game, GameStatus
 from src.ui.download_panel import DownloadPanel
 from src.ui.game_card import GameCard
@@ -38,6 +39,9 @@ class MainWindow(ctk.CTk):
 
         self._cards: dict[str, GameCard] = {}
         self._refresh_job: str | None = None
+        self._disk_sync_counter = 0
+        self._update_prompted = False
+        self._updating_launcher = False
 
         self.title("Steam dos Mussarelos")
         self.geometry("1024x760")
@@ -276,6 +280,8 @@ class MainWindow(ctk.CTk):
             self._cards[game.name] = card
 
     def _check_launcher_update(self) -> None:
+        if self._update_prompted or self._updating_launcher:
+            return
         if not self.catalog_service.launcher_update_available():
             return
 
@@ -284,24 +290,133 @@ class MainWindow(ctk.CTk):
             return
 
         remote = catalog.launcher.latest_version
-        local = self.settings.launcher_version
+        local = LAUNCHER_VERSION
+        self._update_prompted = True
 
-        if messagebox.askyesno(
+        if not messagebox.askyesno(
             "Atualização do Launcher",
             f"Há uma nova versão do launcher disponível.\n\n"
             f"Instalada: {local}\n"
             f"Disponível: {remote}\n\n"
-            f"Deseja baixar a atualização?",
+            f"Deseja baixar e instalar agora?\n"
+            f"(O launcher será reiniciado automaticamente.)",
         ):
-            if catalog.launcher.download:
-                import webbrowser
+            return
 
-                webbrowser.open(catalog.launcher.download)
-            else:
-                messagebox.showinfo(
-                    "Atualização",
-                    "Link de download não configurado no catálogo remoto.",
+        if not catalog.launcher.download:
+            messagebox.showinfo(
+                "Atualização",
+                "Link de download não configurado no catálogo remoto.",
+            )
+            return
+
+        self._start_launcher_update(catalog.launcher.download, remote or local)
+
+    def _start_launcher_update(self, download_url: str, new_version: str) -> None:
+        self._updating_launcher = True
+
+        progress = ctk.CTkToplevel(self)
+        progress.title("Atualizando launcher")
+        progress.geometry("420x160")
+        progress.resizable(False, False)
+        progress.configure(fg_color=COLORS["bg_dark"])
+        progress.transient(self)
+        progress.grab_set()
+        progress.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        status = ctk.CTkLabel(
+            progress,
+            text="Preparando...",
+            font=FONT_BODY,
+            text_color=COLORS["text"],
+        )
+        status.pack(pady=(24, 8), padx=20)
+
+        bar = ctk.CTkProgressBar(progress, width=360, progress_color=COLORS["accent"])
+        bar.pack(pady=8)
+        bar.set(0)
+
+        pct_label = ctk.CTkLabel(progress, text="0%", font=FONT_CAPTION, text_color=COLORS["text_dim"])
+        pct_label.pack()
+
+        def on_progress(msg: str, pct: float) -> None:
+            def _ui() -> None:
+                if not progress.winfo_exists():
+                    return
+                status.configure(text=msg)
+                bar.set(max(0.0, min(1.0, pct / 100.0)))
+                pct_label.configure(text=f"{pct:.0f}%")
+
+            self.after(0, _ui)
+
+        def _run() -> None:
+            try:
+                apply_launcher_update(
+                    download_url,
+                    new_version,
+                    self.settings,
+                    on_progress=on_progress,
                 )
+                self.after(0, lambda: self._finish_launcher_update(progress))
+            except Exception as exc:
+                self.after(0, lambda: self._fail_launcher_update(progress, str(exc)))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _finish_launcher_update(self, dialog: ctk.CTkToplevel) -> None:
+        try:
+            dialog.grab_release()
+            dialog.destroy()
+        except Exception:
+            pass
+        messagebox.showinfo(
+            "Atualização",
+            "Download concluído. O launcher será fechado e reiniciado com a nova versão.",
+        )
+        self.on_closing()
+
+    def _fail_launcher_update(self, dialog: ctk.CTkToplevel, error: str) -> None:
+        self._updating_launcher = False
+        try:
+            dialog.grab_release()
+            dialog.destroy()
+        except Exception:
+            pass
+        messagebox.showerror("Falha na atualização", error)
+
+    def _start_process_monitor(self) -> None:
+        def _tick() -> None:
+            if self._updating_launcher:
+                self._refresh_job = self.after(2000, _tick)
+                return
+
+            if self.catalog_service.catalog:
+                games = self.catalog_service.catalog.games
+                self._disk_sync_counter += 1
+
+                if self._disk_sync_counter >= 5:
+                    self._disk_sync_counter = 0
+                    for game in games:
+                        if game.status == GameStatus.RUNNING:
+                            continue
+                        before = game.status
+                        sync_game_with_disk(game, self.settings)
+                        if game.status != before:
+                            card = self._cards.get(game.name)
+                            if card:
+                                card.refresh()
+
+                changed = self.process_manager.refresh_all(games)
+                for name, did_change in changed.items():
+                    if not did_change:
+                        continue
+                    card = self._cards.get(name)
+                    if card:
+                        card.refresh()
+
+            self._refresh_job = self.after(2000, _tick)
+
+        self._refresh_job = self.after(2000, _tick)
 
     def _on_progress(self, game: Game) -> None:
         def _ui() -> None:
@@ -376,29 +491,7 @@ class MainWindow(ctk.CTk):
         game.update_status(is_running=False)
         card = self._cards.get(game.name)
         if card:
-            card.refresh()
-
-    def _start_process_monitor(self) -> None:
-        def _tick() -> None:
-            if self.catalog_service.catalog:
-                for game in self.catalog_service.catalog.games:
-                    was_installed = game.status in (
-                        GameStatus.INSTALLED,
-                        GameStatus.UPDATE_AVAILABLE,
-                        GameStatus.RUNNING,
-                    )
-                    was_running = game.status == GameStatus.RUNNING
-
-                    if was_installed and not was_running:
-                        sync_game_with_disk(game, self.settings)
-
-                    self.process_manager.refresh_all([game])
-                    card = self._cards.get(game.name)
-                    if card:
-                        card.refresh()
-            self._refresh_job = self.after(2000, _tick)
-
-        self._refresh_job = self.after(2000, _tick)
+            card.refresh(force=True)
 
     def on_closing(self) -> None:
         if self._refresh_job:

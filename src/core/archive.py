@@ -8,7 +8,6 @@ from typing import Optional
 
 ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z"}
 
-
 def detect_archive_type(path: Path) -> str:
     try:
         with open(path, "rb") as f:
@@ -26,7 +25,6 @@ def detect_archive_type(path: Path) -> str:
         return "gzip"
     return "unknown"
 
-
 def _find_7zip() -> Optional[str]:
     candidates = [
         shutil.which("7z"),
@@ -38,7 +36,6 @@ def _find_7zip() -> Optional[str]:
         if path and Path(path).is_file():
             return path
     return None
-
 
 def _find_winrar() -> Optional[str]:
     candidates = [
