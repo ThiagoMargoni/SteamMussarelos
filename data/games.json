@@ -1,6 +1,6 @@
 {
   "launcher": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "download": "https://github.com/ThiagoMargoni/SteamMussarelos/releases/latest"
   },
   "games": [
@@ -17,6 +17,48 @@
       "download": "https://drive.google.com/file/d/1l7gvwGluJukdIFD6kKv7c5y0g6wOy5O_/view",
       "icon": "icons/meccha-chameleon.jpg",
       "executable": "PenguinHotel.exe"
+    },
+    {
+      "name": "Gamble With Your Friends",
+      "version": "1.0.11",
+      "download": "https://drive.google.com/file/d/1FalebAfgIBpaxID5Q7LxmRmPz-dax0yC/view",
+      "icon": "icons/gamble-friends.jpg",
+      "executable": "Gamble With Your Friends.exe"
+    },
+    {
+      "name": "RV There Yet",
+      "version": "1.0.14520",
+      "download": "https://drive.google.com/file/d/16JiyYezL90xFYpQMpMYGfK5cXvycdzQw/view",
+      "icon": "icons/rv-there.jpg",
+      "executable": "Ride.exe"
+    },
+    {
+      "name": "Oh Deer",
+      "version": "3.0.0",
+      "download": "https://drive.google.com/file/d/1J41WtpiByFeX7f6IENu91zB01iUe3ITX/view",
+      "icon": "icons/oh-deer.jpeg",
+      "executable": "OhDeer.exe"
+    },
+    {
+      "name": "Super Battle Golf",
+      "version": "1.1.2-436",
+      "download": "https://drive.google.com/file/d/1sfAoTPb9m0gpT7aJZ03dfDb9rCz6-IPI/view",
+      "icon": "icons/supper-battle-golf.jpeg",
+      "executable": "Super Battle Golf.exe"
+    },
+    {
+      "name": "YAPYAP",
+      "version": "1.0.3.606-deeb8",
+      "download": "https://drive.google.com/file/d/11v1frt2JZ_Fr93bbiQ21L3_iRhlWT0Id/view",
+      "icon": "icons/yapyap.jpeg",
+      "executable": "yapyap.exe"
+    },
+    {
+      "name": "MIMESIS",
+      "version": "0.2.6",
+      "download": "https://drive.google.com/file/d/1BuT5DO6LSJJN0PfBFR5GOBYaP9dOYBwv/view",
+      "icon": "icons/mimesis.jpg",
+      "executable": "MIMESIS.exe"
     }
   ]
 }

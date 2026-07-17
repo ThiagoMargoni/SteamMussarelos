@@ -13,6 +13,7 @@ from src.core.install_state import is_installed_at, sync_game_with_disk
 from src.core.settings import REMOTE_CATALOG_URL, Settings
 from src.models.game import Catalog, Game, LauncherInfo
 from src.utils.paths import resolve_resource, resource_path
+from src.utils.remote_assets import resolve_icon_url
 
 class CatalogService:
     def __init__(self, settings: Settings, catalog_url: str = REMOTE_CATALOG_URL) -> None:
@@ -66,12 +67,13 @@ class CatalogService:
 
         games = []
         for entry in data.get("games", []):
+            icon = resolve_icon_url(entry.get("icon"), self.catalog_url)
             games.append(
                 Game(
                     name=entry["name"],
                     version=entry["version"],
                     download=entry["download"],
-                    icon=entry.get("icon"),
+                    icon=icon,
                     executable=entry.get("executable"),
                 )
             )

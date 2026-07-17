@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import io
+import os
 import threading
 from pathlib import Path
 from typing import Callable, Optional
@@ -9,18 +11,39 @@ import customtkinter as ctk
 import requests
 from PIL import Image, ImageOps
 
+import PIL.JpegImagePlugin  # noqa: F401
+import PIL.PngImagePlugin  # noqa: F401
+import PIL.GifImagePlugin  # noqa: F401
+import PIL.BmpImagePlugin  # noqa: F401
+import PIL.WebPImagePlugin  # noqa: F401
+
+from src.core.settings import REMOTE_CATALOG_URL
 from src.ui.theme import COLORS, ICON_SIZE
 from src.utils.paths import resolve_resource
+from src.utils.remote_assets import resolve_icon_url
 
+def _icon_cache_dir() -> Path:
+    base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home())
+    path = Path(base) / "SteamMussarelos" / "icon_cache"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+def _cache_path_for_url(url: str) -> Path:
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()
+    suffix = Path(url.split("?", 1)[0]).suffix.lower() or ".img"
+    if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}:
+        suffix = ".img"
+    return _icon_cache_dir() / f"{digest}{suffix}"
 
 def load_game_icon(
     icon_path: Optional[str],
     on_ready: Callable[[Optional[ctk.CTkImage]], None],
     size: int = ICON_SIZE,
+    catalog_url: str = REMOTE_CATALOG_URL,
 ) -> None:
     def _work() -> None:
         try:
-            image = _fetch_image(icon_path, size)
+            image = _fetch_image(icon_path, size, catalog_url)
             if image is None:
                 on_ready(None)
                 return
@@ -30,36 +53,59 @@ def load_game_icon(
 
     threading.Thread(target=_work, daemon=True).start()
 
-def _fetch_image(icon_path: Optional[str], size: int) -> Optional[Image.Image]:
+def _fetch_image(
+    icon_path: Optional[str],
+    size: int,
+    catalog_url: str,
+) -> Optional[Image.Image]:
     if not icon_path:
         return None
 
-    if icon_path.startswith("http://") or icon_path.startswith("https://"):
-        resp = requests.get(icon_path, timeout=12)
+    remote = resolve_icon_url(icon_path, catalog_url)
+    if remote and (remote.startswith("http://") or remote.startswith("https://")):
+        img = _load_remote(remote)
+        if img is not None:
+            return ImageOps.fit(img.convert("RGB"), (size, size), Image.Resampling.LANCZOS)
+
+    if not icon_path.startswith("http"):
+        found = resolve_resource(icon_path) or resolve_resource("icons", Path(icon_path).name)
+        if found and found.exists():
+            img = Image.open(found)
+            img.load()
+            return ImageOps.fit(img.convert("RGB"), (size, size), Image.Resampling.LANCZOS)
+
+    return None
+
+def _load_remote(url: str) -> Optional[Image.Image]:
+    cache = _cache_path_for_url(url)
+
+    try:
+        resp = requests.get(url, timeout=15)
         resp.raise_for_status()
-        img = Image.open(io.BytesIO(resp.content))
-    else:
-        path = Path(icon_path)
-        if path.is_absolute():
-            if not path.exists():
-                return None
-        else:
-            found = resolve_resource(icon_path)
-            if found is None:
-                found = resolve_resource("icons", Path(icon_path).name)
-            if found is None:
-                return None
-            path = found
+        data = resp.content
+        if data:
+            try:
+                cache.write_bytes(data)
+            except OSError:
+                pass
+            img = Image.open(io.BytesIO(data))
+            img.load()
+            return img
+    except Exception:
+        pass
 
-        img = Image.open(path)
+    if cache.exists() and cache.stat().st_size > 0:
+        try:
+            img = Image.open(cache)
+            img.load()
+            return img
+        except Exception:
+            cache.unlink(missing_ok=True)
 
-    img.load()
-    return ImageOps.fit(img.convert("RGB"), (size, size), Image.Resampling.LANCZOS)
-
+    return None
 
 def _to_ctk_image(img: Image.Image, size: int) -> ctk.CTkImage:
     return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
-
 
 def apply_icon_to_label(
     label: ctk.CTkLabel,
