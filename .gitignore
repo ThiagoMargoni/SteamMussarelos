@@ -12,3 +12,4 @@ build/
 *.log
 Thumbs.db
 Desktop.ini
+scripts/

@@ -11,11 +11,11 @@ import customtkinter as ctk
 import requests
 from PIL import Image, ImageOps
 
-import PIL.JpegImagePlugin  # noqa: F401
-import PIL.PngImagePlugin  # noqa: F401
-import PIL.GifImagePlugin  # noqa: F401
-import PIL.BmpImagePlugin  # noqa: F401
-import PIL.WebPImagePlugin  # noqa: F401
+import PIL.JpegImagePlugin
+import PIL.PngImagePlugin
+import PIL.GifImagePlugin
+import PIL.BmpImagePlugin
+import PIL.WebPImagePlugin
 
 from src.core.settings import REMOTE_CATALOG_URL
 from src.ui.theme import COLORS, ICON_SIZE
@@ -23,6 +23,8 @@ from src.utils.paths import resolve_resource
 from src.utils.remote_assets import resolve_icon_url
 
 _memory_cache: dict[str, ctk.CTkImage] = {}
+_pil_cache: dict[str, Image.Image] = {}
+_keepalive: list[ctk.CTkImage] = []
 _memory_lock = threading.Lock()
 
 def _icon_cache_dir() -> Path:
@@ -37,6 +39,13 @@ def _cache_path_for_url(url: str) -> Path:
     if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}:
         suffix = ".img"
     return _icon_cache_dir() / f"{digest}{suffix}"
+
+def get_cached_icon(icon_path: Optional[str], size: int = ICON_SIZE) -> Optional[ctk.CTkImage]:
+    if not icon_path:
+        return None
+    with _memory_lock:
+        return _memory_cache.get(f"{icon_path}|{size}")
+
 
 def load_game_icon(
     icon_path: Optional[str],
@@ -64,6 +73,8 @@ def load_game_icon(
             ctk_img = _to_ctk_image(image, size)
             with _memory_lock:
                 _memory_cache[cache_key] = ctk_img
+                _pil_cache[cache_key] = image
+                _keepalive.append(ctk_img)
             on_ready(ctk_img)
         except Exception:
             on_ready(None)
@@ -131,7 +142,9 @@ def _download_to_cache(url: str, cache: Path) -> Optional[Image.Image]:
         return None
 
 def _to_ctk_image(img: Image.Image, size: int) -> ctk.CTkImage:
-    return ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+    light = img.copy()
+    dark = img.copy()
+    return ctk.CTkImage(light_image=light, dark_image=dark, size=(size, size))
 
 def apply_icon_to_label(
     label: ctk.CTkLabel,

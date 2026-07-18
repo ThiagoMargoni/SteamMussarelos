@@ -5,14 +5,13 @@ from typing import Callable, Optional
 import customtkinter as ctk
 
 from src.models.game import DownloadState, Game, GameStatus
-from src.ui.icon_loader import apply_icon_to_label, load_game_icon
+from src.ui.icon_loader import apply_icon_to_label, get_cached_icon, load_game_icon
 from src.ui.theme import (
     BTN_HEIGHT,
     BTN_WIDTH,
     CARD_HEIGHT,
     CARD_RADIUS,
     COLORS,
-    FONT_BODY,
     FONT_CAPTION,
     FONT_HEADING,
     FONT_SMALL,
@@ -44,6 +43,9 @@ class GameCard(ctk.CTkFrame):
         self.game = game
         self._callbacks = (on_install, on_update, on_play, on_stop, on_uninstall)
         self._icon_ref: Optional[ctk.CTkImage] = None
+        self._frame_fg = COLORS["bg_card"]
+        self._frame_border = COLORS["border"]
+        self._last_signature: tuple | None = None
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -150,8 +152,14 @@ class GameCard(ctk.CTkFrame):
         self.uninstall_btn.pack(pady=3)
 
         self._load_icon()
-        self._last_signature: tuple | None = None
-        self.refresh()
+        self.refresh(force=True)
+
+    def _reapply_icon(self) -> None:
+        if not self.winfo_exists():
+            return
+        img = self._icon_ref or get_cached_icon(self.game.icon)
+        if img is not None:
+            apply_icon_to_label(self.icon_label, img)
 
     def _load_icon(self) -> None:
         def _on_ready(img: Optional[ctk.CTkImage]) -> None:
@@ -183,6 +191,14 @@ class GameCard(ctk.CTkFrame):
             round(g.download_progress),
         )
 
+    def _set_frame_style(self, fg: str, border: str) -> None:
+        if fg == self._frame_fg and border == self._frame_border:
+            return
+        self._frame_fg = fg
+        self._frame_border = border
+        self.configure(fg_color=fg, border_color=border)
+        self.after_idle(self._reapply_icon)
+
     def refresh(self, force: bool = False) -> None:
         sig = self._signature()
         if not force and sig == self._last_signature:
@@ -205,13 +221,13 @@ class GameCard(ctk.CTkFrame):
         busy = g.download_state in (DownloadState.DOWNLOADING, DownloadState.EXTRACTING)
 
         if g.status == GameStatus.RUNNING:
-            self.configure(fg_color=COLORS["bg_card_running"], border_color=COLORS["success"])
+            self._set_frame_style(COLORS["bg_card_running"], COLORS["success"])
             self.action_btn.configure(text="Encerrar", fg_color=COLORS["danger"], hover_color=COLORS["danger_hover"])
         elif g.status in (GameStatus.INSTALLED, GameStatus.UPDATE_AVAILABLE):
-            self.configure(fg_color=COLORS["bg_card"], border_color=COLORS["border"])
+            self._set_frame_style(COLORS["bg_card"], COLORS["border"])
             self.action_btn.configure(text="Iniciar", fg_color=COLORS["success"], hover_color=COLORS["success_hover"])
         else:
-            self.configure(fg_color=COLORS["bg_card"], border_color=COLORS["border"])
+            self._set_frame_style(COLORS["bg_card"], COLORS["border"])
             self.action_btn.configure(text="Instalar", fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"])
 
         self.action_btn.configure(state="disabled" if busy else "normal")
@@ -221,4 +237,3 @@ class GameCard(ctk.CTkFrame):
 
         can_uninstall = g.status in (GameStatus.INSTALLED, GameStatus.UPDATE_AVAILABLE) and not busy
         self.uninstall_btn.configure(state="normal" if can_uninstall else "disabled")
-

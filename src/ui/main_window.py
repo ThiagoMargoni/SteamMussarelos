@@ -12,6 +12,7 @@ from src.core.install_state import sync_game_with_disk
 from src.core.installer import Installer
 from src.core.process_manager import ProcessManager
 from src.core.settings import LAUNCHER_VERSION, Settings
+from src.core.steam_launch import ensure_steam_running
 from src.core.updater import apply_launcher_update
 from src.models.game import DownloadState, Game, GameStatus
 from src.ui.download_panel import DownloadPanel
@@ -27,6 +28,7 @@ from src.ui.theme import (
     FONT_HEADING,
     HEADER_HEIGHT,
 )
+from src.utils.paths import resolve_resource
 
 class MainWindow(ctk.CTk):
     def __init__(self) -> None:
@@ -38,15 +40,22 @@ class MainWindow(ctk.CTk):
         self.process_manager = ProcessManager()
 
         self._cards: dict[str, GameCard] = {}
+        self._games: list[Game] = []
+        self._search_query = ""
+        self._search_job: str | None = None
         self._refresh_job: str | None = None
         self._disk_sync_counter = 0
         self._update_prompted = False
         self._updating_launcher = False
+        self._focus_job: str | None = None
+        self._scroll_job: str | None = None
+        self._scrolling = False
 
         self.title("Steam dos Mussarelos")
         self.geometry("1024x760")
         self.minsize(900, 640)
         self.configure(fg_color=COLORS["bg_dark"])
+        self._set_window_icon()
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
@@ -55,12 +64,96 @@ class MainWindow(ctk.CTk):
         self._build_library()
         self._build_downloads()
 
+        self.bind("<FocusIn>", self._on_window_focus, add="+")
+
         if not self.settings.first_run_complete or not self.settings.games_folder:
             self.after(200, self._show_setup)
         else:
             self.after(200, self._initial_load)
 
+        self.after(400, self._ensure_steam)
         self._start_process_monitor()
+
+    def _set_window_icon(self) -> None:
+        icon = resolve_resource("assets", "app.ico")
+        if not icon:
+            return
+        path = str(icon.resolve())
+        try:
+            self.iconbitmap(path)
+            self.wm_iconbitmap(path)
+        except Exception:
+            try:
+                self.iconbitmap(default=path)
+            except Exception:
+                pass
+
+    def _on_window_focus(self, _event=None) -> None:
+        if self._scrolling:
+            return
+        if self._focus_job:
+            try:
+                self.after_cancel(self._focus_job)
+            except Exception:
+                pass
+        self._focus_job = self.after(150, self._reapply_all_icons)
+
+    def _reapply_all_icons(self) -> None:
+        if self._scrolling:
+            return
+        for card in self._cards.values():
+            try:
+                if card.winfo_exists() and card.winfo_ismapped():
+                    card._reapply_icon()
+            except Exception:
+                continue
+
+    def _on_scroll_activity(self, _event=None) -> None:
+        self._scrolling = True
+        if self._scroll_job:
+            try:
+                self.after_cancel(self._scroll_job)
+            except Exception:
+                pass
+        self._scroll_job = self.after(120, self._on_scroll_settled)
+
+    def _on_scroll_settled(self) -> None:
+        self._scrolling = False
+        self._reapply_all_icons()
+
+    def _bind_scroll_events(self) -> None:
+        try:
+            canvas = self.library_frame._parent_canvas  # noqa: SLF001
+            scrollbar = self.library_frame._scrollbar  # noqa: SLF001
+        except Exception:
+            return
+
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>", "<B1-Motion>", "<ButtonPress-1>"):
+            canvas.bind(seq, self._on_scroll_activity, add="+")
+            try:
+                scrollbar.bind(seq, self._on_scroll_activity, add="+")
+            except Exception:
+                pass
+        canvas.bind("<ButtonRelease-1>", self._on_scroll_activity, add="+")
+        try:
+            scrollbar.bind("<ButtonRelease-1>", self._on_scroll_activity, add="+")
+            scrollbar.bind("<B1-Motion>", self._on_scroll_activity, add="+")
+        except Exception:
+            pass
+
+    def _ensure_steam(self) -> None:
+        def _run() -> None:
+            ok, msg = ensure_steam_running()
+            if not ok:
+                self.after(
+                    0,
+                    lambda: messagebox.showwarning(
+                        "Steam",
+                        f"{msg}\n\nAlguns jogos podem precisar da Steam aberta.",
+                    ),
+                )
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _build_header(self) -> None:
         header = ctk.CTkFrame(
@@ -124,14 +217,35 @@ class MainWindow(ctk.CTk):
     def _build_library(self) -> None:
         wrapper = ctk.CTkFrame(self, fg_color="transparent")
         wrapper.pack(fill="both", expand=True, padx=16, pady=(12, 0))
+        self._library_wrapper = wrapper
+
+        title_row = ctk.CTkFrame(wrapper, fg_color="transparent")
+        title_row.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
-            wrapper,
+            title_row,
             text="Biblioteca",
             font=FONT_HEADING,
             text_color=COLORS["text"],
             anchor="w",
-        ).pack(fill="x", pady=(0, 8))
+        ).pack(side="left")
+
+        self.search_entry = ctk.CTkEntry(
+            title_row,
+            placeholder_text="Pesquisar jogos...",
+            height=34,
+            width=260,
+            corner_radius=8,
+            border_width=1,
+            border_color=COLORS["border"],
+            fg_color=COLORS["bg_panel"],
+            text_color=COLORS["text"],
+            placeholder_text_color=COLORS["text_muted"],
+            font=FONT_BODY,
+        )
+        self.search_entry.pack(side="right")
+        self.search_entry.bind("<KeyRelease>", self._on_search_changed)
+        self.search_entry.bind("<Return>", self._on_search_changed)
 
         self.library_frame = ctk.CTkScrollableFrame(
             wrapper,
@@ -144,6 +258,7 @@ class MainWindow(ctk.CTk):
         )
         self.library_frame.pack(fill="both", expand=True)
         self.library_frame.grid_columnconfigure(0, weight=1)
+        self._bind_scroll_events()
 
         self.loading_label = ctk.CTkLabel(
             self.library_frame,
@@ -152,6 +267,14 @@ class MainWindow(ctk.CTk):
             text_color=COLORS["text_muted"],
         )
         self.loading_label.grid(row=0, column=0, pady=60)
+
+        self._empty_label = ctk.CTkLabel(
+            self.library_frame,
+            text="",
+            font=FONT_BODY,
+            text_color=COLORS["text_muted"],
+        )
+
 
     def _build_downloads(self) -> None:
         wrapper = ctk.CTkFrame(self, fg_color="transparent")
@@ -245,24 +368,56 @@ class MainWindow(ctk.CTk):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
+    def _on_search_changed(self, _event=None) -> None:
+        if self._search_job:
+            try:
+                self.after_cancel(self._search_job)
+            except Exception:
+                pass
+        self._search_job = self.after(120, self._apply_search)
+
+    def _apply_search(self) -> None:
+        query = self.search_entry.get().strip().casefold()
+        self._search_query = query
+        self._filter_cards()
+
+    def _filter_cards(self) -> None:
+        query = self._search_query
+        visible = 0
+
+        self._empty_label.grid_forget()
+
+        for i, game in enumerate(self._games):
+            card = self._cards.get(game.name)
+            if not card:
+                continue
+            match = (not query) or (query in game.name.casefold())
+            if match:
+                card.grid(row=i, column=0, sticky="ew", padx=10, pady=6)
+                visible += 1
+            else:
+                card.grid_remove()
+
+        if self._games and visible == 0:
+            self._empty_label.configure(text=f'Nenhum jogo encontrado para "{self.search_entry.get().strip()}".')
+            self._empty_label.grid(row=0, column=0, pady=60)
+        elif not self._games:
+            self._empty_label.configure(text="Nenhum jogo encontrado no catálogo.")
+            self._empty_label.grid(row=0, column=0, pady=60)
+
     def _render_catalog(self, games: list[Game]) -> None:
         self.loading_label.grid_forget()
-        if hasattr(self, "_empty_label") and self._empty_label.winfo_exists():
-            self._empty_label.destroy()
+        self._empty_label.grid_forget()
 
         for card in self._cards.values():
             card.destroy()
         self._cards.clear()
+        self._games = list(games)
 
         self.process_manager.refresh_all(games)
 
         if not games:
-            self._empty_label = ctk.CTkLabel(
-                self.library_frame,
-                text="Nenhum jogo encontrado no catálogo.",
-                font=FONT_BODY,
-                text_color=COLORS["text_muted"],
-            )
+            self._empty_label.configure(text="Nenhum jogo encontrado no catálogo.")
             self._empty_label.grid(row=0, column=0, pady=60)
             return
 
@@ -278,6 +433,8 @@ class MainWindow(ctk.CTk):
             )
             card.grid(row=i, column=0, sticky="ew", padx=10, pady=6)
             self._cards[game.name] = card
+
+        self._filter_cards()
 
     def _check_launcher_update(self) -> None:
         if self._update_prompted or self._updating_launcher:
