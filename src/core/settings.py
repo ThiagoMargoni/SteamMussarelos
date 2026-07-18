@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 APP_NAME = "SteamMussarelos"
-LAUNCHER_VERSION = "1.2.0"
+LAUNCHER_VERSION = "1.3.0"
 
 REMOTE_CATALOG_URL = "https://raw.githubusercontent.com/ThiagoMargoni/SteamMussarelos/master/data/games.json"
 
