@@ -123,8 +123,8 @@ class MainWindow(ctk.CTk):
 
     def _bind_scroll_events(self) -> None:
         try:
-            canvas = self.library_frame._parent_canvas  # noqa: SLF001
-            scrollbar = self.library_frame._scrollbar  # noqa: SLF001
+            canvas = self.library_frame._parent_canvas
+            scrollbar = self.library_frame._scrollbar
         except Exception:
             return
 
