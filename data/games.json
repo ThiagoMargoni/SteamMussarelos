@@ -66,6 +66,20 @@
       "download": "https://drive.google.com/file/d/11IfYzRl_t829woy0QNYaLDHDrFcOQ9JG/view",
       "icon": "icons/ultimate-chicken-horse.jpeg",
       "executable": "UltimateChickenHorse.exe"
+    },
+    {
+      "name": "Schedule I",
+      "version": "0.4.9",
+      "download": "https://drive.google.com/file/d/1B5q3EKZn3nBBo7E56_t0cmGh70NvlJ_4/view",
+      "icon": "icons/schedule.png",
+      "executable": "Schedule I.exe"
+    },
+    {
+      "name": "Among Us",
+      "version": "2024.6.186.0",
+      "download": "https://drive.google.com/file/d/1lz0TDTuMnR2BpznBABDqtiDyvotFb8Wb/view",
+      "icon": "icons/among-us.jpeg",
+      "executable": "Among Us.exe"
     }
   ]
 }
