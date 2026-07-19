@@ -80,6 +80,13 @@
       "download": "https://drive.google.com/file/d/1lz0TDTuMnR2BpznBABDqtiDyvotFb8Wb/view",
       "icon": "icons/among-us.jpeg",
       "executable": "Among Us.exe"
+    },
+    {
+      "name": "R.E.P.O",
+      "version": "0.2.2",
+      "download": "https://drive.google.com/file/d/1ZPAWc7xgAUlvdTpJnOTH_650xuM0z92e/view",
+      "icon": "icons/repo.jpeg",
+      "executable": "REPO.exe"
     }
   ]
 }
