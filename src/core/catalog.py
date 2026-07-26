@@ -9,6 +9,7 @@ from typing import Optional
 import requests
 from packaging import version
 
+from src.core.debug_mode import use_local_assets
 from src.core.install_state import is_installed_at, sync_game_with_disk
 from src.core.settings import LAUNCHER_VERSION, REMOTE_CATALOG_URL, Settings
 from src.models.game import Catalog, Game, LauncherInfo
@@ -30,19 +31,24 @@ class CatalogService:
         data = None
         errors: list[str] = []
 
-        try:
-            resp = requests.get(self.catalog_url, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-
-        except Exception as exc:
-            errors.append(str(exc))
-
-            if local_fallback:
-                local_path = resolve_resource("data", "games.json") or resource_path("data", "games.json")
-                if local_path and Path(local_path).exists():
-                    with open(local_path, encoding="utf-8") as f:
-                        data = json.load(f)
+        if use_local_assets():
+            local_path = resolve_resource("data", "games.json") or resource_path("data", "games.json")
+            if not local_path or not Path(local_path).exists():
+                raise RuntimeError("Modo local: data/games.json não encontrado.")
+            with open(local_path, encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            try:
+                resp = requests.get(self.catalog_url, timeout=15)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                errors.append(str(exc))
+                if local_fallback:
+                    local_path = resolve_resource("data", "games.json") or resource_path("data", "games.json")
+                    if local_path and Path(local_path).exists():
+                        with open(local_path, encoding="utf-8") as f:
+                            data = json.load(f)
 
         if data is None:
             raise RuntimeError(
@@ -67,7 +73,11 @@ class CatalogService:
 
         games = []
         for entry in data.get("games", []):
-            icon = resolve_icon_url(entry.get("icon"), self.catalog_url)
+            raw_icon = entry.get("icon")
+            if use_local_assets():
+                icon = raw_icon
+            else:
+                icon = resolve_icon_url(raw_icon, self.catalog_url)
             games.append(
                 Game(
                     name=entry["name"],
@@ -115,28 +125,32 @@ class CatalogService:
             if not is_installed_at(entry, game.executable):
                 continue
 
-            detected_version = self._detect_version(entry) or game.version
+            detected_version = self._detect_version(entry)
+            exe = game.executable or self._find_executable(entry)
+            game.executable = exe
+            game.install_path = str(entry)
 
-            if (
-                not game.installed_version
-                or version.parse(detected_version) > version.parse(game.installed_version)
-            ):
+            if detected_version is not None:
                 game.installed_version = detected_version
-                game.install_path = str(entry)
-                exe = game.executable or self._find_executable(entry)
-                game.executable = exe
-                self.settings.set_installed_game(
-                    name, detected_version, str(entry), exe
-                )
+            elif not game.installed_version:
+                game.installed_version = "0.0.0"
 
+            self.settings.set_installed_game(
+                name,
+                game.installed_version,
+                str(entry),
+                exe,
+            )
             game.update_status()
 
     def _detect_version(self, game_dir: Path) -> Optional[str]:
         version_file = game_dir / "version.txt"
-
         if version_file.exists():
-            return version_file.read_text(encoding="utf-8").strip()
-        
+            try:
+                text = version_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                return None
+            return text or None
         return None
 
     def _find_executable(self, game_dir: Path) -> Optional[str]:

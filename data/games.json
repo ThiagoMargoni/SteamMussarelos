@@ -8,63 +8,63 @@
       "name": "Pummel Party",
       "version": "1.0.0",
       "download": "https://drive.google.com/file/d/1Aznc14pMtGxY9yCS_JqoMppieRs7Stxn/view",
-      "icon": "icons/pummel-party.jpeg",
+      "icon": "icons/pummel-party.png",
       "executable": "PummelParty.exe"
     },
     {
       "name": "MECCHA CHAMELEON",
       "version": "3.3.0",
       "download": "https://drive.google.com/file/d/1jH6G3Yky1l2HnfqikPAjMcfLHaLqX9Jp/view",
-      "icon": "icons/meccha-chameleon.jpg",
+      "icon": "icons/meccha-chameleon.png",
       "executable": "PenguinHotel.exe"
     },
     {
       "name": "Gamble With Your Friends",
       "version": "1.0.11",
       "download": "https://drive.google.com/file/d/14wAycjGRN9o0Oo6a0dJs6aNIE9ILREVt/view",
-      "icon": "icons/gamble-friends.jpg",
+      "icon": "icons/gamble-friends.png",
       "executable": "Gamble With Your Friends.exe"
     },
     {
       "name": "RV There Yet",
       "version": "1.0.14520",
       "download": "https://drive.google.com/file/d/16JiyYezL90xFYpQMpMYGfK5cXvycdzQw/view",
-      "icon": "icons/rv-there.jpg",
+      "icon": "icons/rv-there.png",
       "executable": "Ride.exe"
     },
     {
       "name": "Oh Deer",
       "version": "3.0.0",
       "download": "https://drive.google.com/file/d/1J41WtpiByFeX7f6IENu91zB01iUe3ITX/view",
-      "icon": "icons/oh-deer.jpeg",
+      "icon": "icons/oh-deer.png",
       "executable": "OhDeer.exe"
     },
     {
       "name": "Super Battle Golf",
       "version": "1.1.2-436",
       "download": "https://drive.google.com/file/d/1sfAoTPb9m0gpT7aJZ03dfDb9rCz6-IPI/view",
-      "icon": "icons/supper-battle-golf.jpeg",
+      "icon": "icons/supper-battle-golf.png",
       "executable": "Super Battle Golf.exe"
     },
     {
       "name": "YAPYAP",
       "version": "1.0.3.606",
       "download": "https://drive.google.com/file/d/11v1frt2JZ_Fr93bbiQ21L3_iRhlWT0Id/view",
-      "icon": "icons/yapyap.jpeg",
+      "icon": "icons/yapyap.png",
       "executable": "yapyap.exe"
     },
     {
       "name": "MIMESIS",
       "version": "0.2.6",
       "download": "https://drive.google.com/file/d/1BuT5DO6LSJJN0PfBFR5GOBYaP9dOYBwv/view",
-      "icon": "icons/mimesis.jpg",
+      "icon": "icons/mimesis.png",
       "executable": "MIMESIS.exe"
     },
     {
       "name": "Ultimate Chicken Horse",
       "version": "1.11.01",
       "download": "https://drive.google.com/file/d/11IfYzRl_t829woy0QNYaLDHDrFcOQ9JG/view",
-      "icon": "icons/ultimate-chicken-horse.jpeg",
+      "icon": "icons/ultimate-chicken-horse.png",
       "executable": "UltimateChickenHorse.exe"
     },
     {
@@ -78,14 +78,14 @@
       "name": "Among Us",
       "version": "2024.6.186.0",
       "download": "https://drive.google.com/file/d/1lz0TDTuMnR2BpznBABDqtiDyvotFb8Wb/view",
-      "icon": "icons/among-us.jpeg",
+      "icon": "icons/among-us.png",
       "executable": "Among Us.exe"
     },
     {
       "name": "R.E.P.O",
       "version": "0.2.2",
       "download": "https://drive.google.com/file/d/1guMXuNHLTO1Mz3p6duvREs8fEtM0dqN6/view",
-      "icon": "icons/repo.jpeg",
+      "icon": "icons/repo.png",
       "executable": "REPO.exe"
     }
   ]

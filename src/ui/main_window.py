@@ -17,6 +17,8 @@ from src.core.updater import apply_launcher_update
 from src.models.game import DownloadState, Game, GameStatus
 from src.ui.download_panel import DownloadPanel
 from src.ui.game_card import GameCard
+from src.ui.action_icons import get_uninstall_icon
+from src.ui.scroll_frame import PlaceScrollFrame
 from src.ui.setup_wizard import SetupWizard
 from src.ui.theme import (
     CARD_RADIUS,
@@ -39,7 +41,6 @@ class MainWindow(ctk.CTk):
         self.installer = Installer(self.settings)
         self.process_manager = ProcessManager()
 
-        self._cards: dict[str, GameCard] = {}
         self._games: list[Game] = []
         self._search_query = ""
         self._search_job: str | None = None
@@ -48,14 +49,12 @@ class MainWindow(ctk.CTk):
         self._update_prompted = False
         self._updating_launcher = False
         self._focus_job: str | None = None
-        self._scroll_job: str | None = None
-        self._scrolling = False
 
         self.title("Steam dos Mussarelos")
         self.geometry("1024x760")
         self.minsize(900, 640)
         self.configure(fg_color=COLORS["bg_dark"])
-        self._set_window_icon()
+        self.after(50, self._set_window_icon)
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
@@ -89,8 +88,6 @@ class MainWindow(ctk.CTk):
                 pass
 
     def _on_window_focus(self, _event=None) -> None:
-        if self._scrolling:
-            return
         if self._focus_job:
             try:
                 self.after_cancel(self._focus_job)
@@ -99,47 +96,33 @@ class MainWindow(ctk.CTk):
         self._focus_job = self.after(150, self._reapply_all_icons)
 
     def _reapply_all_icons(self) -> None:
-        if self._scrolling:
-            return
-        for card in self._cards.values():
+        for card in self.library_scroll.iter_cards():
             try:
                 if card.winfo_exists() and card.winfo_ismapped():
                     card._reapply_icon()
             except Exception:
                 continue
 
-    def _on_scroll_activity(self, _event=None) -> None:
-        self._scrolling = True
-        if self._scroll_job:
-            try:
-                self.after_cancel(self._scroll_job)
-            except Exception:
-                pass
-        self._scroll_job = self.after(120, self._on_scroll_settled)
+    def _card_for(self, name: str) -> GameCard | None:
+        return self.library_scroll.card_for(name)
 
-    def _on_scroll_settled(self) -> None:
-        self._scrolling = False
-        self._reapply_all_icons()
+    def _create_card(self, parent, game: Game) -> GameCard:
+        return GameCard(
+            parent,
+            game,
+            on_install=self._on_install,
+            on_update=self._on_update,
+            on_play=self._on_play,
+            on_stop=self._on_stop,
+            on_uninstall=self._on_uninstall,
+            uninstall_image=get_uninstall_icon(),
+        )
 
-    def _bind_scroll_events(self) -> None:
-        try:
-            canvas = self.library_frame._parent_canvas
-            scrollbar = self.library_frame._scrollbar
-        except Exception:
-            return
-
-        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>", "<B1-Motion>", "<ButtonPress-1>"):
-            canvas.bind(seq, self._on_scroll_activity, add="+")
-            try:
-                scrollbar.bind(seq, self._on_scroll_activity, add="+")
-            except Exception:
-                pass
-        canvas.bind("<ButtonRelease-1>", self._on_scroll_activity, add="+")
-        try:
-            scrollbar.bind("<ButtonRelease-1>", self._on_scroll_activity, add="+")
-            scrollbar.bind("<B1-Motion>", self._on_scroll_activity, add="+")
-        except Exception:
-            pass
+    def _filtered_games(self) -> list[Game]:
+        query = self._search_query
+        if not query:
+            return list(self._games)
+        return [g for g in self._games if query in g.name.casefold()]
 
     def _ensure_steam(self) -> None:
         def _run() -> None:
@@ -247,7 +230,7 @@ class MainWindow(ctk.CTk):
         self.search_entry.bind("<KeyRelease>", self._on_search_changed)
         self.search_entry.bind("<Return>", self._on_search_changed)
 
-        self.library_frame = ctk.CTkScrollableFrame(
+        self.library_scroll = PlaceScrollFrame(
             wrapper,
             fg_color=COLORS["bg_panel"],
             corner_radius=CARD_RADIUS,
@@ -256,9 +239,8 @@ class MainWindow(ctk.CTk):
             scrollbar_button_color=COLORS["border"],
             scrollbar_button_hover_color=COLORS["border_light"],
         )
-        self.library_frame.pack(fill="both", expand=True)
-        self.library_frame.grid_columnconfigure(0, weight=1)
-        self._bind_scroll_events()
+        self.library_scroll.pack(fill="both", expand=True)
+        self.library_frame = self.library_scroll.inner
 
         self.loading_label = ctk.CTkLabel(
             self.library_frame,
@@ -274,7 +256,6 @@ class MainWindow(ctk.CTk):
             font=FONT_BODY,
             text_color=COLORS["text_muted"],
         )
-
 
     def _build_downloads(self) -> None:
         wrapper = ctk.CTkFrame(self, fg_color="transparent")
@@ -382,58 +363,29 @@ class MainWindow(ctk.CTk):
         self._filter_cards()
 
     def _filter_cards(self) -> None:
-        query = self._search_query
-        visible = 0
-
         self._empty_label.grid_forget()
+        filtered = self._filtered_games()
 
-        for i, game in enumerate(self._games):
-            card = self._cards.get(game.name)
-            if not card:
-                continue
-            match = (not query) or (query in game.name.casefold())
-            if match:
-                card.grid(row=i, column=0, sticky="ew", padx=10, pady=6)
-                visible += 1
-            else:
-                card.grid_remove()
-
-        if self._games and visible == 0:
-            self._empty_label.configure(text=f'Nenhum jogo encontrado para "{self.search_entry.get().strip()}".')
-            self._empty_label.grid(row=0, column=0, pady=60)
-        elif not self._games:
-            self._empty_label.configure(text="Nenhum jogo encontrado no catálogo.")
-            self._empty_label.grid(row=0, column=0, pady=60)
-
-    def _render_catalog(self, games: list[Game]) -> None:
-        self.loading_label.grid_forget()
-        self._empty_label.grid_forget()
-
-        for card in self._cards.values():
-            card.destroy()
-        self._cards.clear()
-        self._games = list(games)
-
-        self.process_manager.refresh_all(games)
-
-        if not games:
+        if not self._games:
+            self.library_scroll.clear_cards()
             self._empty_label.configure(text="Nenhum jogo encontrado no catálogo.")
             self._empty_label.grid(row=0, column=0, pady=60)
             return
 
-        for i, game in enumerate(games):
-            card = GameCard(
-                self.library_frame,
-                game,
-                on_install=self._on_install,
-                on_update=self._on_update,
-                on_play=self._on_play,
-                on_stop=self._on_stop,
-                on_uninstall=self._on_uninstall,
-            )
-            card.grid(row=i, column=0, sticky="ew", padx=10, pady=6)
-            self._cards[game.name] = card
+        if not filtered:
+            self.library_scroll.clear_cards()
+            self._empty_label.configure(text=f'Nenhum jogo encontrado para "{self.search_entry.get().strip()}".')
+            self._empty_label.grid(row=0, column=0, pady=60)
+            return
 
+        self.library_scroll.set_games(filtered, self._create_card)
+
+    def _render_catalog(self, games: list[Game]) -> None:
+        self.loading_label.grid_forget()
+        self._empty_label.grid_forget()
+        self.library_scroll.clear_cards()
+        self._games = list(games)
+        self.process_manager.refresh_all(games)
         self._filter_cards()
 
     def _check_launcher_update(self) -> None:
@@ -559,7 +511,7 @@ class MainWindow(ctk.CTk):
                         before = game.status
                         sync_game_with_disk(game, self.settings)
                         if game.status != before:
-                            card = self._cards.get(game.name)
+                            card = self._card_for(game.name)
                             if card:
                                 card.refresh()
 
@@ -567,7 +519,7 @@ class MainWindow(ctk.CTk):
                 for name, did_change in changed.items():
                     if not did_change:
                         continue
-                    card = self._cards.get(name)
+                    card = self._card_for(name)
                     if card:
                         card.refresh()
 
@@ -577,7 +529,7 @@ class MainWindow(ctk.CTk):
 
     def _on_progress(self, game: Game) -> None:
         def _ui() -> None:
-            card = self._cards.get(game.name)
+            card = self._card_for(game.name)
             if card:
                 card.refresh()
             self.download_panel.update_game(game)
@@ -595,7 +547,7 @@ class MainWindow(ctk.CTk):
     def _reset_download_state(self, game: Game) -> None:
         if game.download_state == DownloadState.FINISHED:
             game.download_state = DownloadState.IDLE
-            card = self._cards.get(game.name)
+            card = self._card_for(game.name)
             if card:
                 card.refresh()
 
@@ -614,7 +566,7 @@ class MainWindow(ctk.CTk):
                 f"{game.name} não está instalado nesta pasta.\n\n"
                 "Use Instalar para baixar novamente.",
             )
-            card = self._cards.get(game.name)
+            card = self._card_for(game.name)
             if card:
                 card.refresh()
             return
@@ -623,7 +575,7 @@ class MainWindow(ctk.CTk):
         if not ok:
             messagebox.showwarning("Aviso", msg)
         game.update_status(is_running=True)
-        card = self._cards.get(game.name)
+        card = self._card_for(game.name)
         if card:
             card.refresh()
 
@@ -639,14 +591,14 @@ class MainWindow(ctk.CTk):
             return
 
         self.installer.remove_installation(game)
-        card = self._cards.get(game.name)
+        card = self._card_for(game.name)
         if card:
             card.refresh()
 
     def _on_stop(self, game: Game) -> None:
         self.process_manager.stop(game)
         game.update_status(is_running=False)
-        card = self._cards.get(game.name)
+        card = self._card_for(game.name)
         if card:
             card.refresh(force=True)
 

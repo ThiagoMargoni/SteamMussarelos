@@ -7,9 +7,8 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-import customtkinter as ctk
 import requests
-from PIL import Image, ImageOps
+from PIL import Image, ImageTk
 
 import PIL.JpegImagePlugin
 import PIL.PngImagePlugin
@@ -17,15 +16,27 @@ import PIL.GifImagePlugin
 import PIL.BmpImagePlugin
 import PIL.WebPImagePlugin
 
+from src.core.debug_mode import use_local_assets
 from src.core.settings import REMOTE_CATALOG_URL
 from src.ui.theme import COLORS, ICON_SIZE
 from src.utils.paths import resolve_resource
 from src.utils.remote_assets import resolve_icon_url
 
-_memory_cache: dict[str, ctk.CTkImage] = {}
 _pil_cache: dict[str, Image.Image] = {}
-_keepalive: list[ctk.CTkImage] = []
+_photo_cache: dict[str, ImageTk.PhotoImage] = {}
+_keepalive: list[ImageTk.PhotoImage] = []
 _memory_lock = threading.Lock()
+
+def _cache_key(icon_path: str, size: int) -> str:
+    return f"{icon_path}|{size}|contain"
+
+def icon_cache_key(icon_path: str, size: int) -> str:
+    return _cache_key(icon_path, size)
+
+def _scale_icon(img: Image.Image, size: int) -> Image.Image:
+    src = img.convert("RGBA")
+    src.thumbnail((size, size), Image.Resampling.LANCZOS)
+    return src
 
 def _icon_cache_dir() -> Path:
     base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home())
@@ -40,16 +51,15 @@ def _cache_path_for_url(url: str) -> Path:
         suffix = ".img"
     return _icon_cache_dir() / f"{digest}{suffix}"
 
-def get_cached_icon(icon_path: Optional[str], size: int = ICON_SIZE) -> Optional[ctk.CTkImage]:
+def get_cached_icon(icon_path: Optional[str], size: int = ICON_SIZE) -> Optional[ImageTk.PhotoImage]:
     if not icon_path:
         return None
     with _memory_lock:
-        return _memory_cache.get(f"{icon_path}|{size}")
-
+        return _photo_cache.get(_cache_key(icon_path, size))
 
 def load_game_icon(
     icon_path: Optional[str],
-    on_ready: Callable[[Optional[ctk.CTkImage]], None],
+    on_ready: Callable[[Optional[ImageTk.PhotoImage]], None],
     size: int = ICON_SIZE,
     catalog_url: str = REMOTE_CATALOG_URL,
 ) -> None:
@@ -57,9 +67,9 @@ def load_game_icon(
         on_ready(None)
         return
 
-    cache_key = f"{icon_path}|{size}"
+    cache_key = _cache_key(icon_path, size)
     with _memory_lock:
-        cached = _memory_cache.get(cache_key)
+        cached = _photo_cache.get(cache_key)
     if cached is not None:
         on_ready(cached)
         return
@@ -70,12 +80,9 @@ def load_game_icon(
             if image is None:
                 on_ready(None)
                 return
-            ctk_img = _to_ctk_image(image, size)
             with _memory_lock:
-                _memory_cache[cache_key] = ctk_img
                 _pil_cache[cache_key] = image
-                _keepalive.append(ctk_img)
-            on_ready(ctk_img)
+            on_ready(image)
         except Exception:
             on_ready(None)
 
@@ -89,18 +96,29 @@ def _fetch_image(
     if not icon_path:
         return None
 
+    if use_local_assets() or not (
+        icon_path.startswith("http://") or icon_path.startswith("https://")
+    ):
+        found = resolve_resource(icon_path) or resolve_resource("icons", Path(icon_path).name)
+        if found and found.exists():
+            img = Image.open(found)
+            img.load()
+            return _scale_icon(img, size)
+        if use_local_assets():
+            return None
+
     remote = resolve_icon_url(icon_path, catalog_url)
     if remote and (remote.startswith("http://") or remote.startswith("https://")):
         img = _load_remote(remote)
         if img is not None:
-            return ImageOps.fit(img.convert("RGB"), (size, size), Image.Resampling.LANCZOS)
+            return _scale_icon(img, size)
 
     if not icon_path.startswith("http"):
         found = resolve_resource(icon_path) or resolve_resource("icons", Path(icon_path).name)
         if found and found.exists():
             img = Image.open(found)
             img.load()
-            return ImageOps.fit(img.convert("RGB"), (size, size), Image.Resampling.LANCZOS)
+            return _scale_icon(img, size)
 
     return None
 
@@ -141,26 +159,28 @@ def _download_to_cache(url: str, cache: Path) -> Optional[Image.Image]:
     except Exception:
         return None
 
-def _to_ctk_image(img: Image.Image, size: int) -> ctk.CTkImage:
-    light = img.copy()
-    dark = img.copy()
-    return ctk.CTkImage(light_image=light, dark_image=dark, size=(size, size))
-
 def apply_icon_to_label(
-    label: ctk.CTkLabel,
-    ctk_image: Optional[ctk.CTkImage],
+    label,
+    image: Image.Image | ImageTk.PhotoImage | None,
     placeholder: str = "?",
-) -> ctk.CTkImage | None:
-    if ctk_image:
-        label.configure(image=ctk_image, text="")
-        label._icon_ref = ctk_image
-        return ctk_image
+    cache_key: str | None = None,
+) -> ImageTk.PhotoImage | None:
+    if image is None:
+        label.configure(image="", text=placeholder, fg=COLORS["text_muted"], font=("Segoe UI", 28, "bold"))
+        label._icon_ref = None
+        return None
 
-    label.configure(
-        image=None,
-        text=placeholder,
-        font=("Segoe UI", 32, "bold"),
-        text_color=COLORS["text_muted"],
-    )
-    label._icon_ref = None
-    return None
+    if isinstance(image, ImageTk.PhotoImage):
+        photo = image
+    else:
+        photo = ImageTk.PhotoImage(image)
+        if cache_key:
+            with _memory_lock:
+                _photo_cache[cache_key] = photo
+                _keepalive.append(photo)
+        else:
+            _keepalive.append(photo)
+
+    label.configure(image=photo, text="")
+    label._icon_ref = photo
+    return photo
