@@ -26,11 +26,17 @@ jobs:
           --name=SteamMussarelos 
           main.py
 
-      - name: Sign Executable
-        uses: skymatic/code-signing-action@v1
-        with:
-          certificate: 'self-signed'
-          files: 'dist/SteamMussarelos.exe'
+      - name: Sign EXE
+        shell: powershell
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigning -Subject "CN=SteamMussarelos" -CertStoreLocation "Cert:\CurrentUser\My"
+          try {
+              Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert -TimestampServer "http://digicert.com" -ErrorAction Stop
+          } catch {
+              Write-Warning "Falha no servidor de timestamp primario. Tentando assinar sem timestamp..."
+              Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert
+          }
+
 
       - name: Verify Executable Location
         run: Get-ChildItem -Path dist -Filter *.exe
