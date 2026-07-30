@@ -31,9 +31,15 @@ jobs:
         run: |
           $cert = New-SelfSignedCertificate -Type CodeSigning -Subject "CN=SteamMussarelos" -FriendlyName "SteamMussarelos Open Source" -CertStoreLocation "Cert:\CurrentUser\My"
           
+          $password = ConvertTo-SecureString "MussarelosSecurePass123!" -AsPlainText -Force
+          
+          Export-PfxCertificate -Cert $cert -FilePath "dist\cert.pfx" -Password $password
+          
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1).FullName
           
-          & $signtool sign /a /f $cert /fd SHA256 /tr http://digicert.com /td SHA256 dist/SteamMussarelos.exe
+          & $signtool sign /f "dist\cert.pfx" /p "MussarelosSecurePass123!" /fd SHA256 /tr http://digicert.com /td SHA256 dist/SteamMussarelos.exe
+          
+          Remove-Item "dist\cert.pfx"
 
       - name: Verify Executable Location
         run: Get-ChildItem -Path dist -Filter *.exe
