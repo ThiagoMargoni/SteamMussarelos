@@ -16,27 +16,18 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
-          pip install "pyinstaller>=6.3" pywin32
+          pip install nuitka zstandard
 
-      - name: Compile with PyInstaller
+      - name: Compile with Nuitka (Real Native EXE)
         run: >
-          pyinstaller --onefile --windowed --noupx --uac-admin
-          --icon=assets/app.ico
-          --version-file=version_info.txt
-          --add-data="assets;assets"
-          --name=SteamMussarelos
+          nuitka --standalone --onefile 
+          --assume-yes-for-downloads
+          --windows-uac-admin
+          --windows-icon-from-ico=assets/app.ico
+          --include-data-dir=assets=assets
+          --output-dir=dist
+          --output-filename=SteamMussarelos
           main.py
-
-      - name: Sign EXE
-        shell: powershell
-        run: |
-          $cert = New-SelfSignedCertificate -Type CodeSigning -Subject "CN=SteamMussarelos" -CertStoreLocation "Cert:\CurrentUser\My"
-          try {
-              Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert -TimestampServer "http://timestamp.digicert.com" -ErrorAction Stop
-          } catch {
-              Write-Warning "Falha no timestamp. Assinando sem timestamp..."
-              Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert
-          }
 
       - name: Pack ZIP
         shell: powershell
