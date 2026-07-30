@@ -8,35 +8,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install Dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install nuitka zstandard
-
-      - name: Compile with Nuitka (Real Native EXE)
-        run: >
-          nuitka --standalone --onefile 
-          --assume-yes-for-downloads
-          --windows-uac-admin
-          --windows-icon-from-ico=assets/app.ico
-          --include-data-dir=assets=assets
-          --output-dir=dist
-          --output-filename=SteamMussarelos
-          main.py
-
-      - name: Pack ZIP
-        shell: powershell
-        run: |
-          Compress-Archive -Path "dist/SteamMussarelos.exe" -DestinationPath "dist/SteamMussarelos.zip" -Force
-          Get-ChildItem -Path dist | Format-Table Name, Length
-
+      - run: pip install -r requirements.txt
+      - run: pip install pyinstaller
+      - run: pyinstaller --onefile --windowed --uac-admin --icon=assets/app.ico --add-data="assets;assets" --name SteamMussarelos main.py
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/SteamMussarelos.zip
-            dist/SteamMussarelos.exe
+          files: dist/SteamMussarelos.exe

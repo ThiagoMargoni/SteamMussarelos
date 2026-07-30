@@ -11,15 +11,16 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
+import psutil
 import requests
 
 from src.core.settings import APP_NAME
 
 ProgressCallback = Callable[[str, float], None]
 
-DETACHED_PROCESS = 0x00000008
-CREATE_NEW_PROCESS_GROUP = 0x00000200
-CREATE_NO_WINDOW = 0x08000000
+APPLY_UPDATE_FLAG = "--apply-update"
+UPDATE_TARGET_FLAG = "--update-target"
+UPDATE_PID_FLAG = "--update-pid"
 
 def _github_repo_from_url(url: str) -> Optional[tuple[str, str]]:
     parsed = urlparse(url)
@@ -87,8 +88,14 @@ def _updates_dir() -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-def _ps_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+def _log_update(message: str) -> None:
+    log_file = _updates_dir() / "update.log"
+    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n"
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
 
 def _extract_exe_from_zip(archive: Path, dest_exe: Path) -> Path:
     with zipfile.ZipFile(archive, "r") as zf:
@@ -133,8 +140,6 @@ def apply_launcher_update(
     stamp = str(int(time.time()))
     download_path = update_dir / f"SteamMussarelos_{new_version}_{stamp}.download"
     new_exe = update_dir / f"SteamMussarelos_{new_version}_{stamp}.exe"
-    log_file = update_dir / "update.log"
-    script = update_dir / f"apply_update_{stamp}.ps1"
 
     notify("Baixando atualização...", 10)
     _download_file(asset_url, download_path, lambda p: notify("Baixando atualização...", 10 + p * 0.7))
@@ -156,93 +161,66 @@ def apply_launcher_update(
     if not new_exe.is_file() or new_exe.stat().st_size < 1_000_000:
         raise ValueError("Não foi possível obter o .exe da atualização.")
 
-    notify("Preparando reinício...", 90)
-    pid = os.getpid()
-    target_lit = _ps_literal(str(target))
-    new_lit = _ps_literal(str(new_exe))
-    log_lit = _ps_literal(str(log_file))
+    notify("Preparando reinício...", 95)
+    _log_update(f"launch apply-update new={new_exe} target={target} pid={os.getpid()}")
 
-    script_content = f"""$ErrorActionPreference = 'Continue'
-$pidToWait = {pid}
-$target = {target_lit}
-$newFile = {new_lit}
-$logFile = {log_lit}
-
-function Write-Log([string]$msg) {{
-  $line = "[{{0}}] {{1}}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
-  Add-Content -Path $logFile -Value $line -Encoding UTF8
-}}
-
-Write-Log "update start pid=$pidToWait"
-Write-Log "target=$target"
-Write-Log "new=$newFile"
-
-try {{
-  Wait-Process -Id $pidToWait -Timeout 120 -ErrorAction SilentlyContinue
-}} catch {{
-  Write-Log "Wait-Process: $($_.Exception.Message)"
-}}
-
-Start-Sleep -Seconds 1
-
-$copied = $false
-for ($i = 1; $i -le 20; $i++) {{
-  try {{
-    Copy-Item -LiteralPath $newFile -Destination $target -Force -ErrorAction Stop
-    $copied = $true
-    Write-Log "copy ok attempt=$i"
-    break
-  }} catch {{
-    Write-Log "copy fail attempt=$i err=$($_.Exception.Message)"
-    Start-Sleep -Seconds 1
-  }}
-}}
-
-if (-not $copied) {{
-  Write-Log "copy failed permanently"
-  exit 1
-}}
-
-Remove-Item -LiteralPath $newFile -Force -ErrorAction SilentlyContinue
-
-try {{
-  Start-Process -FilePath $target -Verb RunAs
-  Write-Log "restart RunAs ok"
-}} catch {{
-  try {{
-    Start-Process -FilePath $target
-    Write-Log "restart normal ok"
-  }} catch {{
-    Write-Log "restart failed: $($_.Exception.Message)"
-    exit 1
-  }}
-}}
-
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-Write-Log "update done"
-"""
-    script.write_text(script_content, encoding="utf-8")
-
-    notify("Reiniciando...", 100)
-    flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     subprocess.Popen(
         [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            str(script),
+            str(new_exe),
+            APPLY_UPDATE_FLAG,
+            UPDATE_TARGET_FLAG,
+            str(target),
+            UPDATE_PID_FLAG,
+            str(os.getpid()),
         ],
-        cwd=str(update_dir),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=flags,
+        cwd=str(new_exe.parent),
         close_fds=True,
     )
+    notify("Reiniciando...", 100)
+
+def run_apply_update(target: Path, wait_pid: int) -> int:
+    source = current_executable_path()
+    target = target.resolve()
+    _log_update(f"apply-update start source={source} target={target} wait_pid={wait_pid}")
+
+    if wait_pid > 0:
+        try:
+            proc = psutil.Process(wait_pid)
+            proc.wait(timeout=120)
+        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+            pass
+        except Exception as exc:
+            _log_update(f"wait pid error: {exc}")
+
+    time.sleep(1.0)
+
+    copied = False
+    last_error = ""
+    for attempt in range(1, 21):
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            copied = True
+            _log_update(f"copy ok attempt={attempt}")
+            break
+        except OSError as exc:
+            last_error = str(exc)
+            _log_update(f"copy fail attempt={attempt} err={exc}")
+            time.sleep(1.0)
+
+    if not copied:
+        _log_update(f"copy failed permanently: {last_error}")
+        return 1
+
+    try:
+        subprocess.Popen([str(target)], cwd=str(target.parent), close_fds=True)
+        _log_update("restart ok")
+    except OSError as exc:
+        _log_update(f"restart failed: {exc}")
+        return 1
+
+    _log_update("apply-update done")
+    return 0
 
 def force_exit_for_update() -> None:
     os._exit(0)

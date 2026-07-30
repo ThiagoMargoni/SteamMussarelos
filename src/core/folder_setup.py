@@ -4,7 +4,6 @@ from pathlib import Path
 
 from src.core.defender import DefenderService
 from src.core.settings import Settings
-from src.core.updater import current_executable_path
 
 def apply_games_folder(settings: Settings, folder: str) -> tuple[bool, str]:
     path = Path(folder).resolve()
@@ -13,12 +12,6 @@ def apply_games_folder(settings: Settings, folder: str) -> tuple[bool, str]:
     ok, msg = DefenderService.add_exclusion(str(path))
     settings.set_games_folder(str(path))
     settings.first_run_complete = True
-
-    try:
-        exe_dir = current_executable_path().parent
-        DefenderService.add_exclusion(str(exe_dir))
-    except Exception:
-        pass
 
     status = f"Pasta configurada:\n{path}\n\n{msg}"
     if not ok:

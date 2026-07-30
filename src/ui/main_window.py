@@ -482,7 +482,8 @@ class MainWindow(ctk.CTk):
             pass
         messagebox.showinfo(
             "Atualização",
-            "Download concluído. O launcher vai fechar agora e abrir de novo.\n"
+            "Download concluído. O launcher vai fechar e a nova versão vai\n"
+            "substituir este executável e abrir de novo.\n"
             "Se o Windows pedir permissão (UAC), aceite.",
         )
         try:
