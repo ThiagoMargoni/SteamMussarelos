@@ -12,26 +12,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+          
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
-          pip install nuitka zstandard
+          pip install pyinstaller pywin32
 
-      - name: Compile with Nuitka
+      - name: Compile with PyInstaller
         run: >
-          nuitka --onefile --standalone
-          --windows-disable-console
-          --windows-uac-admin
-          --windows-icon-from-ico=assets/app.ico
-          --include-data-dir=assets=assets
-          --output-dir=.
-          --output-filename=SteamMussarelos.exe
+          pyinstaller --onefile --windowed --uac-admin 
+          --icon=assets/app.ico 
+          --add-data="assets;assets" 
+          --name=SteamMussarelos 
           main.py
 
-      - name: Verify if the file was installed
-        run: Get-ChildItem -Filter *.exe
+      - name: Create Free Digital Certificate and Sign EXE
+        shell: powershell
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigning -Subject "CN=SteamMussarelos" -FriendlyName "SteamMussarelos Open Source" -CertStoreLocation "Cert:\CurrentUser\My"
+          
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1).FullName
+          
+          & $signtool sign /a /f $cert /fd SHA256 /tr http://digicert.com /td SHA256 dist/SteamMussarelos.exe
+
+      - name: Verify Executable Location
+        run: Get-ChildItem -Path dist -Filter *.exe
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: SteamMussarelos.exe
+          files: dist/SteamMussarelos.exe
