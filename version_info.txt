@@ -17,12 +17,12 @@ VSVersionInfo(
         [
           StringStruct("CompanyName", "Steam dos Mussarelos"),
           StringStruct("FileDescription", "Steam dos Mussarelos — Launcher de jogos"),
-          StringStruct("FileVersion", "1.4.0"),
+          StringStruct("FileVersion", "1.5.2"),
           StringStruct("InternalName", "SteamMussarelos"),
           StringStruct("LegalCopyright", "Copyright (c) Steam dos Mussarelos"),
           StringStruct("OriginalFilename", "SteamMussarelos.exe"),
           StringStruct("ProductName", "Steam dos Mussarelos"),
-          StringStruct("ProductVersion", "1.4.0"),
+          StringStruct("ProductVersion", "1.5.2"),
         ]
       )
     ]),
