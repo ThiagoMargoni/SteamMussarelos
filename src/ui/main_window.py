@@ -13,7 +13,7 @@ from src.core.installer import Installer
 from src.core.process_manager import ProcessManager
 from src.core.settings import LAUNCHER_VERSION, Settings
 from src.core.steam_launch import ensure_steam_running
-from src.core.updater import apply_launcher_update
+from src.core.updater import apply_launcher_update, force_exit_for_update
 from src.models.game import DownloadState, Game, GameStatus
 from src.ui.download_panel import DownloadPanel
 from src.ui.game_card import GameCard
@@ -482,10 +482,19 @@ class MainWindow(ctk.CTk):
             pass
         messagebox.showinfo(
             "Atualização",
-            "Download concluído. O launcher vai fechar e abrir de novo sozinho.\n"
+            "Download concluído. O launcher vai fechar agora e abrir de novo.\n"
             "Se o Windows pedir permissão (UAC), aceite.",
         )
-        self.after(200, self.on_closing)
+        try:
+            if self._refresh_job:
+                self.after_cancel(self._refresh_job)
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        force_exit_for_update()
 
     def _fail_launcher_update(self, dialog: ctk.CTkToplevel, error: str) -> None:
         self._updating_launcher = False

@@ -15,9 +15,9 @@ from src.core.settings import APP_NAME
 
 ProgressCallback = Callable[[str, float], None]
 
-CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
 CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_NO_WINDOW = 0x08000000
 
 def _github_repo_from_url(url: str) -> Optional[tuple[str, str]]:
     parsed = urlparse(url)
@@ -82,6 +82,9 @@ def _updates_dir() -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
+def _ps_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
 def apply_launcher_update(
     download_hint: str,
     new_version: str,
@@ -106,7 +109,7 @@ def apply_launcher_update(
     stamp = str(int(time.time()))
     new_exe = update_dir / f"SteamMussarelos_{new_version}_{stamp}.exe"
     log_file = update_dir / "update.log"
-    bat = update_dir / f"apply_update_{stamp}.bat"
+    script = update_dir / f"apply_update_{stamp}.ps1"
 
     notify("Baixando atualização...", 10)
     _download_file(asset_url, new_exe, lambda p: notify("Baixando atualização...", 10 + p * 0.75))
@@ -115,63 +118,85 @@ def apply_launcher_update(
         raise ValueError("Arquivo baixado parece inválido (muito pequeno).")
 
     notify("Preparando reinício...", 90)
-    target_s = str(target)
-    new_s = str(new_exe)
-    log_s = str(log_file)
     pid = os.getpid()
+    target_lit = _ps_literal(str(target))
+    new_lit = _ps_literal(str(new_exe))
+    log_lit = _ps_literal(str(log_file))
 
-    bat_content = f"""@echo off
-setlocal EnableExtensions
-set "TARGET={target_s}"
-set "NEW={new_s}"
-set "LOG={log_s}"
-set "PID={pid}"
+    script_content = f"""$ErrorActionPreference = 'Continue'
+$pidToWait = {pid}
+$target = {target_lit}
+$newFile = {new_lit}
+$logFile = {log_lit}
 
-echo [%date% %time%] update start >> "%LOG%"
-echo target=%TARGET% >> "%LOG%"
-echo new=%NEW% >> "%LOG%"
+function Write-Log([string]$msg) {{
+  $line = "[{{0}}] {{1}}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
+  Add-Content -Path $logFile -Value $line -Encoding UTF8
+}}
 
-:wait
-tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
-if not errorlevel 1 (
-  ping -n 2 127.0.0.1 >nul
-  goto wait
-)
+Write-Log "update start pid=$pidToWait"
+Write-Log "target=$target"
+Write-Log "new=$newFile"
 
-ping -n 2 127.0.0.1 >nul
+try {{
+  Wait-Process -Id $pidToWait -Timeout 120 -ErrorAction SilentlyContinue
+}} catch {{
+  Write-Log "Wait-Process: $($_.Exception.Message)"
+}}
 
-set "OK=0"
-for /L %%i in (1,1,15) do (
-  copy /Y "%NEW%" "%TARGET%" >nul 2>&1
-  if not errorlevel 1 (
-    set "OK=1"
-    goto copied
-  )
-  ping -n 2 127.0.0.1 >nul
-)
+Start-Sleep -Seconds 1
 
-:copied
-if "%OK%"=="0" (
-  echo [%date% %time%] copy failed >> "%LOG%"
-  exit /b 1
-)
+$copied = $false
+for ($i = 1; $i -le 20; $i++) {{
+  try {{
+    Copy-Item -LiteralPath $newFile -Destination $target -Force -ErrorAction Stop
+    $copied = $true
+    Write-Log "copy ok attempt=$i"
+    break
+  }} catch {{
+    Write-Log "copy fail attempt=$i err=$($_.Exception.Message)"
+    Start-Sleep -Seconds 1
+  }}
+}}
 
-echo [%date% %time%] copy ok >> "%LOG%"
-del /F /Q "%NEW%" >nul 2>&1
+if (-not $copied) {{
+  Write-Log "copy failed permanently"
+  exit 1
+}}
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try {{ Start-Process -FilePath '%TARGET%' -Verb RunAs }} catch {{ Start-Process -FilePath '%TARGET%' }}" >> "%LOG%" 2>&1
-echo [%date% %time%] restart requested >> "%LOG%"
-del /F /Q "%~f0" >nul 2>&1
+Remove-Item -LiteralPath $newFile -Force -ErrorAction SilentlyContinue
+
+try {{
+  Start-Process -FilePath $target -Verb RunAs
+  Write-Log "restart RunAs ok"
+}} catch {{
+  try {{
+    Start-Process -FilePath $target
+    Write-Log "restart normal ok"
+  }} catch {{
+    Write-Log "restart failed: $($_.Exception.Message)"
+    exit 1
+  }}
+}}
+
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+Write-Log "update done"
 """
-    bat.write_text(bat_content, encoding="utf-8")
+    script.write_text(script_content, encoding="utf-8")
 
     notify("Reiniciando...", 100)
-    flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    if sys.platform == "win32":
-        flags |= CREATE_NO_WINDOW
-
+    flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     subprocess.Popen(
-        ["cmd.exe", "/c", str(bat)],
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            str(script),
+        ],
         cwd=str(update_dir),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -179,6 +204,9 @@ del /F /Q "%~f0" >nul 2>&1
         creationflags=flags,
         close_fds=True,
     )
+
+def force_exit_for_update() -> None:
+    os._exit(0)
 
 def _download_file(
     url: str,
