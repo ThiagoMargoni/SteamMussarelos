@@ -30,16 +30,39 @@ jobs:
         shell: powershell
         run: |
           $cert = New-SelfSignedCertificate -Type CodeSigning -Subject "CN=SteamMussarelos" -FriendlyName "SteamMussarelos Open Source" -CertStoreLocation "Cert:\CurrentUser\My"
-          
           $password = ConvertTo-SecureString "MussarelosSecurePass123!" -AsPlainText -Force
-          
           Export-PfxCertificate -Cert $cert -FilePath "dist\cert.pfx" -Password $password
-          
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1).FullName
           
-          & $signtool sign /f "dist\cert.pfx" /p "MussarelosSecurePass123!" /fd SHA256 /tr http://digicert.com /td SHA256 dist/SteamMussarelos.exe
+          $timestampServers = @(
+              "http://sectigo.com",
+              "http://digicert.com",
+              "http://globalsign.com",
+              "http://apple.com"
+          )
+          
+          $signed = $false
+          foreach ($server in $timestampServers) {
+              Write-Host "Tentando assinar com o servidor: $server..."
+              & $signtool sign /f "dist\cert.pfx" /p "MussarelosSecurePass123!" /fd SHA256 /tr $server /td SHA256 dist/SteamMussarelos.exe 2>$null
+              
+              if ($LASTEXITCODE -eq 0) {
+                  Write-Host "Sucesso!"
+                  $signed = $true
+                  break
+              } else {
+                  Write-Warning "Falha ao alcançar $server. Tentando próximo..."
+                  Start-Sleep -Seconds 5
+              }
+          }
           
           Remove-Item "dist\cert.pfx"
+          
+          if (-not $signed) {
+              Write-Error "Erro Crítico: Todos os servidores falharam."
+              exit 1
+          }
+
 
       - name: Verify Executable Location
         run: Get-ChildItem -Path dist -Filter *.exe
