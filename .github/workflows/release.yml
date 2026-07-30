@@ -8,18 +8,27 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: pip install "pyinstaller>=6.3"
-      - run: >
-          pyinstaller --onedir --windowed --noupx --uac-admin
-          --icon=assets/app.ico
-          --version-file=version_info.txt
-          --add-data="assets;assets"
-          --name SteamMussarelos
+          cache: 'pip'
+
+      - name: Instalar dependências
+        run: |
+          pip install -r requirements.txt
+          pip install nuitka zstandard
+
+      - name: Compilar com Nuitka
+        run: >
+          nuitka --onefile --standalone
+          --windows-disable-console
+          --windows-uac-admin
+          --windows-icon-from-ico=assets/app.ico
+          --include-data-dir=assets=assets
+          --output-filename=SteamMussarelos.exe
           main.py
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/SteamMussarelos.exe
+          files: SteamMussarelos.exe
