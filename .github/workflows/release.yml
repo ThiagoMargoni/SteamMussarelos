@@ -8,22 +8,23 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          
+
       - name: Install Dependencies
         run: |
           pip install -r requirements.txt
-          pip install pyinstaller pywin32
+          pip install "pyinstaller>=6.3" pywin32
 
       - name: Compile with PyInstaller
         run: >
-          pyinstaller --onefile --windowed --uac-admin 
-          --icon=assets/app.ico 
-          --add-data="assets;assets" 
-          --name=SteamMussarelos 
+          pyinstaller --onefile --windowed --noupx --uac-admin
+          --icon=assets/app.ico
+          --version-file=version_info.txt
+          --add-data="assets;assets"
+          --name=SteamMussarelos
           main.py
 
       - name: Sign EXE
@@ -31,16 +32,20 @@ jobs:
         run: |
           $cert = New-SelfSignedCertificate -Type CodeSigning -Subject "CN=SteamMussarelos" -CertStoreLocation "Cert:\CurrentUser\My"
           try {
-              Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert -TimestampServer "http://digicert.com" -ErrorAction Stop
+              Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert -TimestampServer "http://timestamp.digicert.com" -ErrorAction Stop
           } catch {
-              Write-Warning "Falha no servidor de timestamp primario. Tentando assinar sem timestamp..."
+              Write-Warning "Falha no timestamp. Assinando sem timestamp..."
               Set-AuthenticodeSignature -FilePath "dist/SteamMussarelos.exe" -Certificate $cert
           }
 
-
-      - name: Verify Executable Location
-        run: Get-ChildItem -Path dist -Filter *.exe
+      - name: Pack ZIP
+        shell: powershell
+        run: |
+          Compress-Archive -Path "dist/SteamMussarelos.exe" -DestinationPath "dist/SteamMussarelos.zip" -Force
+          Get-ChildItem -Path dist | Format-Table Name, Length
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/SteamMussarelos.exe
+          files: |
+            dist/SteamMussarelos.zip
+            dist/SteamMussarelos.exe

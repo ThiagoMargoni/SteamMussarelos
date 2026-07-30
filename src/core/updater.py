@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import urlparse
@@ -33,7 +35,8 @@ def resolve_release_asset_url(download_hint: str) -> str:
     if not hint:
         raise ValueError("URL de download do launcher não configurada.")
 
-    if hint.lower().endswith(".exe") and "github.com" in hint:
+    lower = hint.lower()
+    if (lower.endswith(".zip") or lower.endswith(".exe")) and "github.com" in lower:
         return hint
 
     repo = _github_repo_from_url(hint)
@@ -49,27 +52,29 @@ def resolve_release_asset_url(download_hint: str) -> str:
     )
     resp.raise_for_status()
     data = resp.json()
-
     assets = data.get("assets") or []
-    exe_assets = [a for a in assets if str(a.get("name", "")).lower().endswith(".exe")]
-    if not exe_assets:
-        raise ValueError(
-            "Nenhum .exe encontrado no release mais recente do GitHub.\n"
-            "Publique o SteamMussarelos.exe como asset do release."
-        )
 
-    preferred = next(
-        (
-            a
-            for a in exe_assets
-            if re.search(r"steammussarelos|launcher|main", a["name"], re.I)
-        ),
-        exe_assets[0],
-    )
-    url = preferred.get("browser_download_url")
-    if not url:
-        raise ValueError("Asset do release sem URL de download.")
-    return url
+    def _pick(candidates: list[dict], pattern: str) -> Optional[dict]:
+        if not candidates:
+            return None
+        preferred = next(
+            (a for a in candidates if re.search(pattern, a.get("name", ""), re.I)),
+            candidates[0],
+        )
+        return preferred if preferred.get("browser_download_url") else None
+
+    zip_assets = [a for a in assets if str(a.get("name", "")).lower().endswith(".zip")]
+    chosen = _pick(zip_assets, r"steammussarelos|launcher")
+    if chosen is None:
+        exe_assets = [a for a in assets if str(a.get("name", "")).lower().endswith(".exe")]
+        chosen = _pick(exe_assets, r"steammussarelos|launcher|main")
+
+    if chosen is None:
+        raise ValueError(
+            "Nenhum .zip/.exe encontrado no release mais recente do GitHub.\n"
+            "Publique SteamMussarelos.zip (com o .exe dentro) como asset do release."
+        )
+    return str(chosen["browser_download_url"])
 
 def current_executable_path() -> Path:
     if getattr(sys, "frozen", False):
@@ -84,6 +89,25 @@ def _updates_dir() -> Path:
 
 def _ps_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+def _extract_exe_from_zip(archive: Path, dest_exe: Path) -> Path:
+    with zipfile.ZipFile(archive, "r") as zf:
+        exe_names = [
+            name
+            for name in zf.namelist()
+            if name.lower().endswith(".exe") and not name.endswith("/")
+        ]
+        if not exe_names:
+            raise ValueError("O .zip do release não contém nenhum .exe.")
+
+        preferred = next(
+            (n for n in exe_names if re.search(r"steammussarelos", Path(n).name, re.I)),
+            exe_names[0],
+        )
+        dest_exe.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(preferred) as src, open(dest_exe, "wb") as out:
+            shutil.copyfileobj(src, out)
+    return dest_exe
 
 def apply_launcher_update(
     download_hint: str,
@@ -107,15 +131,30 @@ def apply_launcher_update(
     target = current_executable_path()
     update_dir = _updates_dir()
     stamp = str(int(time.time()))
+    download_path = update_dir / f"SteamMussarelos_{new_version}_{stamp}.download"
     new_exe = update_dir / f"SteamMussarelos_{new_version}_{stamp}.exe"
     log_file = update_dir / "update.log"
     script = update_dir / f"apply_update_{stamp}.ps1"
 
     notify("Baixando atualização...", 10)
-    _download_file(asset_url, new_exe, lambda p: notify("Baixando atualização...", 10 + p * 0.75))
+    _download_file(asset_url, download_path, lambda p: notify("Baixando atualização...", 10 + p * 0.7))
 
-    if new_exe.stat().st_size < 1_000_000:
+    if download_path.stat().st_size < 500_000:
         raise ValueError("Arquivo baixado parece inválido (muito pequeno).")
+
+    notify("Extraindo...", 82)
+    lower_url = asset_url.lower()
+    if lower_url.endswith(".zip") or zipfile.is_zipfile(download_path):
+        _extract_exe_from_zip(download_path, new_exe)
+        try:
+            download_path.unlink()
+        except OSError:
+            pass
+    else:
+        download_path.replace(new_exe)
+
+    if not new_exe.is_file() or new_exe.stat().st_size < 1_000_000:
+        raise ValueError("Não foi possível obter o .exe da atualização.")
 
     notify("Preparando reinício...", 90)
     pid = os.getpid()
