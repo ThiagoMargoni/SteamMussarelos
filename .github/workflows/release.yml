@@ -12,22 +12,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: 'pip'
 
-      - name: Instalar dependências
+      - name: Install Dependencies
         run: |
           pip install -r requirements.txt
           pip install nuitka zstandard
 
-      - name: Compilar com Nuitka
+      - name: Compile with Nuitka
         run: >
           nuitka --onefile --standalone
           --windows-disable-console
           --windows-uac-admin
           --windows-icon-from-ico=assets/app.ico
           --include-data-dir=assets=assets
+          --output-dir=.
           --output-filename=SteamMussarelos.exe
           main.py
+
+      - name: Verify if the file was installed
+        run: Get-ChildItem -Filter *.exe
 
       - uses: softprops/action-gh-release@v2
         with:
