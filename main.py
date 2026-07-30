@@ -11,6 +11,19 @@ if str(ROOT) not in sys.path:
 from src.core.debug_mode import set_local_assets
 from src.utils.admin import ensure_admin
 
+def _protect_install_dir() -> None:
+    try:
+        import sys
+
+        if not getattr(sys, "frozen", False):
+            return
+        from src.core.defender import DefenderService
+        from src.core.updater import current_executable_path
+
+        DefenderService.add_exclusion(str(current_executable_path().parent))
+    except Exception:
+        pass
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument(
@@ -26,6 +39,7 @@ def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     set_local_assets(args.local)
     ensure_admin()
+    _protect_install_dir()
 
     from src.ui.main_window import MainWindow
 

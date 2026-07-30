@@ -73,17 +73,18 @@ class MainWindow(ctk.CTk):
         self.after(400, self._ensure_steam)
         self._start_process_monitor()
 
-    def _set_window_icon(self) -> None:
+    def _set_window_icon(self, window=None) -> None:
         icon = resolve_resource("assets", "app.ico")
         if not icon:
             return
         path = str(icon.resolve())
+        target = window or self
         try:
-            self.iconbitmap(path)
-            self.wm_iconbitmap(path)
+            target.iconbitmap(path)
+            target.wm_iconbitmap(path)
         except Exception:
             try:
-                self.iconbitmap(default=path)
+                target.iconbitmap(default=path)
             except Exception:
                 pass
 
@@ -432,6 +433,7 @@ class MainWindow(ctk.CTk):
         progress.transient(self)
         progress.grab_set()
         progress.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.after(30, lambda: self._set_window_icon(progress))
 
         status = ctk.CTkLabel(
             progress,
@@ -480,9 +482,10 @@ class MainWindow(ctk.CTk):
             pass
         messagebox.showinfo(
             "Atualização",
-            "Download concluído. O launcher será fechado e reiniciado com a nova versão.",
+            "Download concluído. O launcher vai fechar e abrir de novo sozinho.\n"
+            "Se o Windows pedir permissão (UAC), aceite.",
         )
-        self.on_closing()
+        self.after(200, self.on_closing)
 
     def _fail_launcher_update(self, dialog: ctk.CTkToplevel, error: str) -> None:
         self._updating_launcher = False
@@ -491,7 +494,12 @@ class MainWindow(ctk.CTk):
             dialog.destroy()
         except Exception:
             pass
-        messagebox.showerror("Falha na atualização", error)
+        messagebox.showerror(
+            "Falha na atualização",
+            f"{error}\n\n"
+            "Se o Defender bloqueou o arquivo, permita o app e tente de novo,\n"
+            "ou baixe o .exe em GitHub → Releases.",
+        )
 
     def _start_process_monitor(self) -> None:
         def _tick() -> None:
