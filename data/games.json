@@ -87,6 +87,13 @@
       "download": "https://drive.google.com/file/d/1guMXuNHLTO1Mz3p6duvREs8fEtM0dqN6/view",
       "icon": "icons/repo.png",
       "executable": "REPO.exe"
+    },
+    {
+      "name": "Tabletop Simulator",
+      "version": "14.2.1",
+      "download": "https://drive.google.com/file/d/16sbOMDiiBdy3vutLq1uAxrdznoCg1rfc/view",
+      "icon": "icons/tabletop-simulator.png",
+      "executable": "Tabletop Simulator.exe"
     }
   ]
 }
