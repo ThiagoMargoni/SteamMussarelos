@@ -90,7 +90,7 @@
     },
     {
       "name": "Tabletop Simulator",
-      "version": "14.2.1",
+      "version": "14.2.2",
       "download": "https://drive.google.com/file/d/16sbOMDiiBdy3vutLq1uAxrdznoCg1rfc/view",
       "icon": "icons/tabletop-simulator.png",
       "executable": "Tabletop Simulator.exe"
