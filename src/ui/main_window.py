@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
-    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPushButton,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +35,7 @@ from src.ui.game_card import GameCard
 from src.ui.progress_bar import RoundProgressBar
 from src.ui.qt_bridge import ui_bridge, ui_call
 from src.ui.scroll_frame import PlaceScrollFrame
+from src.ui.settings_dialog import SettingsDialog
 from src.ui.setup_wizard import SetupWizard
 from src.ui.theme import (
     COLORS,
@@ -67,6 +69,10 @@ class MainWindow(QMainWindow):
         self._update_prompted = False
         self._updating_launcher = False
         self._uninstall_icon = get_uninstall_icon()
+        self._force_quit = False
+        self._tray: QSystemTrayIcon | None = None
+        self._tray_hint_shown = False
+        self._settings_dialog: SettingsDialog | None = None
 
         self.setWindowTitle("Steam dos Mussarelos")
         self.resize(1024, 760)
@@ -84,6 +90,9 @@ class MainWindow(QMainWindow):
         self._build_header(root)
         self._build_library(root)
         self._build_downloads(root)
+        self._apply_scroll_speed(self.settings.scroll_speed)
+        if self.settings.close_to_tray:
+            self._setup_tray()
 
         if not self.settings.first_run_complete or not self.settings.games_folder:
             QTimer.singleShot(200, self._show_setup)
@@ -169,21 +178,16 @@ class MainWindow(QMainWindow):
         self.reload_btn.clicked.connect(self._reload_catalog)
         layout.addWidget(self.reload_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self.folder_btn = QPushButton("Pasta dos jogos")
-        self.folder_btn.setFlat(True)
-        self.folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.folder_btn.setFixedSize(300, 36)
-        self.folder_btn.setFont(font_caption())
-        self.folder_btn.setStyleSheet(
-            btn_style(
-                COLORS["bg_panel"],
-                COLORS["bg_card_hover"],
-                COLORS["text_dim"],
-                align="left",
-            )
+        self.settings_btn = QPushButton("Configurações")
+        self.settings_btn.setFlat(True)
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setFixedSize(140, 36)
+        self.settings_btn.setFont(font_button())
+        self.settings_btn.setStyleSheet(
+            btn_style(COLORS["bg_panel"], COLORS["bg_card_hover"], COLORS["text_dim"])
         )
-        self.folder_btn.clicked.connect(self._change_games_folder)
-        layout.addWidget(self.folder_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.settings_btn.clicked.connect(self._open_settings)
+        layout.addWidget(self.settings_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addWidget(header)
 
     def _build_library(self, root: QVBoxLayout) -> None:
@@ -226,44 +230,103 @@ class MainWindow(QMainWindow):
     def _show_setup(self) -> None:
         SetupWizard(self, self.settings, on_complete=self._initial_load).exec()
 
-    def _update_folder_display(self) -> None:
-        folder = self.settings.games_folder or "Escolher pasta..."
-        self.folder_btn.setText(self._shorten_path(folder, max_len=38))
+    def _apply_scroll_speed(self, speed: float) -> None:
+        self.library_scroll.set_scroll_speed(speed)
+        self.download_panel.set_scroll_speed(speed)
 
-    @staticmethod
-    def _shorten_path(path: str, max_len: int = 38) -> str:
-        if len(path) <= max_len:
-            return path
-        parts = Path(path).parts
-        if len(parts) <= 2:
-            return path[: max_len - 3] + "..."
-        return str(Path(parts[0]) / "..." / Path(*parts[-2:]))
+    def _setup_tray(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        icon = self.windowIcon()
+        if icon.isNull():
+            path = resolve_resource("assets", "app.ico")
+            if path:
+                icon = QIcon(str(path.resolve()))
+        self._tray = QSystemTrayIcon(icon, self)
+        self._tray.setToolTip("Steam dos Mussarelos")
 
-    def _change_games_folder(self) -> None:
-        current = self.settings.games_folder or str(Path.home())
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Selecione a pasta dos jogos",
-            current if Path(current).exists() else "",
+        menu = QMenu()
+        menu.setStyleSheet(
+            f"""
+            QMenu {{
+                background-color: {COLORS['bg_medium']};
+                color: {COLORS['text']};
+                border: 1px solid {COLORS['border']};
+                padding: 4px;
+            }}
+            QMenu::item {{
+                padding: 8px 24px;
+                background: transparent;
+            }}
+            QMenu::item:selected {{
+                background-color: {COLORS['bg_card']};
+            }}
+            """
         )
-        if not folder:
-            return
-        folder = str(Path(folder).resolve())
-        if folder == self.settings.games_folder:
-            return
+        open_action = QAction("Abrir", self)
+        open_action.triggered.connect(self._restore_from_tray)
+        quit_action = QAction("Sair", self)
+        quit_action.triggered.connect(self._quit_app)
+        menu.addAction(open_action)
+        menu.addSeparator()
+        menu.addAction(quit_action)
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
 
-        msg = f"Usar esta pasta para os jogos?\n\n{folder}"
-        if self.settings.installed_games:
-            msg += (
-                "\n\nOs jogos instalados serão procurados na nova pasta. "
-                "Se ainda não estiverem lá, será necessário reinstalá-los."
-            )
-        if not ask_yes_no(self, "Alterar pasta dos jogos", msg):
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self._restore_from_tray()
+
+    def _restore_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _quit_app(self) -> None:
+        self._force_quit = True
+        self._monitor_timer.stop()
+        if self._tray is not None:
+            self._tray.hide()
+        self.close()
+        QApplication.instance().quit()
+
+    def _open_settings(self) -> None:
+        if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
             return
+        dialog = SettingsDialog(self, self.settings, on_apply=self._apply_settings)
+        self._settings_dialog = dialog
+        dialog.finished.connect(lambda _=0: setattr(self, "_settings_dialog", None))
+        dialog.exec()
 
-        self.folder_btn.setEnabled(False)
-        self.folder_btn.setText("Configurando...")
+    def _apply_settings(
+        self,
+        *,
+        folder_change: str | None,
+        scroll_speed: float | None,
+        close_to_tray: bool | None,
+    ) -> None:
+        if scroll_speed is not None:
+            self.settings.scroll_speed = scroll_speed
+            self._apply_scroll_speed(scroll_speed)
+        if close_to_tray is not None:
+            self.settings.close_to_tray = close_to_tray
+            if close_to_tray:
+                if self._tray is None:
+                    self._setup_tray()
+                else:
+                    self._tray.show()
+            elif self._tray is not None:
+                self._tray.hide()
+        if folder_change:
+            self._change_games_folder(folder_change)
 
+    def _change_games_folder(self, folder: str) -> None:
         def _apply() -> None:
             try:
                 _, status = apply_games_folder(self.settings, folder)
@@ -274,19 +337,20 @@ class MainWindow(QMainWindow):
                         self, "Erro", f"Não foi possível alterar a pasta:\n{exc}"
                     )
                 )
-                ui_call(self._update_folder_display)
             finally:
-                ui_call(lambda: self.folder_btn.setEnabled(True))
+                ui_call(self._notify_settings_folder_done)
 
         threading.Thread(target=_apply, daemon=True).start()
 
+    def _notify_settings_folder_done(self) -> None:
+        if self._settings_dialog is not None:
+            self._settings_dialog.notify_folder_done()
+
     def _on_folder_changed(self, status: str) -> None:
-        self._update_folder_display()
         self._reload_catalog()
         show_info(self, "Pasta atualizada", status)
 
     def _initial_load(self) -> None:
-        self._update_folder_display()
         self._reload_catalog()
 
     def _reload_catalog(self) -> None:
@@ -416,6 +480,7 @@ class MainWindow(QMainWindow):
             "Se o Windows pedir permissão (UAC), aceite.",
         )
         self._monitor_timer.stop()
+        self._force_quit = True
         self.close()
         force_exit_for_update()
 
@@ -535,9 +600,28 @@ class MainWindow(QMainWindow):
             card.refresh(force=True)
 
     def on_closing(self) -> None:
-        self._monitor_timer.stop()
-        self.close()
+        self._quit_app()
 
     def closeEvent(self, event) -> None:
-        self._monitor_timer.stop()
-        super().closeEvent(event)
+        if self._force_quit or not self.settings.close_to_tray:
+            self._monitor_timer.stop()
+            if self._tray is not None:
+                self._tray.hide()
+            event.accept()
+            return
+
+        if self._tray is None or not QSystemTrayIcon.isSystemTrayAvailable():
+            self._monitor_timer.stop()
+            event.accept()
+            return
+
+        event.ignore()
+        self.hide()
+        if not self._tray_hint_shown:
+            self._tray_hint_shown = True
+            self._tray.showMessage(
+                "Steam dos Mussarelos",
+                "O launcher continua em segundo plano. Clique no ícone da bandeja para abrir ou sair.",
+                QSystemTrayIcon.MessageIcon.Information,
+                4000,
+            )

@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -15,6 +14,7 @@ from PySide6.QtWidgets import (
 from src.models.game import DownloadState, Game
 from src.ui.progress_bar import RoundProgressBar
 from src.ui.scroll_frame import PillScrollBar
+from src.ui.speed_scroll import SpeedScrollArea
 from src.ui.theme import (
     COLORS,
     DOWNLOAD_PANEL_HEIGHT,
@@ -164,14 +164,13 @@ class DownloadPanel(QFrame):
         self.single_host.hide()
         self.body_layout.addWidget(self.single_host)
 
-        self.multi_scroll = QScrollArea()
+        self.multi_scroll = SpeedScrollArea()
         self.multi_scroll.setObjectName("downloadScroll")
         self.multi_scroll.setWidgetResizable(True)
         self.multi_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.multi_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.multi_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.multi_scroll.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        # Escopo no objectName — stylesheet sem seletor aplicava transparent nos cards filhos.
         self.multi_scroll.setStyleSheet(
             "QScrollArea#downloadScroll { border: none; background: transparent; }"
         )
@@ -304,3 +303,6 @@ class DownloadPanel(QFrame):
     def _update_count(self) -> None:
         n = len(self._game_refs)
         self.count_label.setText(f"{n} ativo{'s' if n != 1 else ''}" if n else "")
+
+    def set_scroll_speed(self, speed: float) -> None:
+        self.multi_scroll.set_scroll_speed(speed)

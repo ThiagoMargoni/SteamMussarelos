@@ -12,10 +12,7 @@ from PySide6.QtWidgets import (
 
 from src.ui.theme import COLORS, btn_style, font_body, font_button, font_heading
 
-
 class SteamDialog(QDialog):
-    """Popup no padrão visual do Steam dos Mussarelos (fundo escuro + botões do tema)."""
-
     def __init__(
         self,
         parent: QWidget | None,
@@ -91,18 +88,14 @@ class SteamDialog(QDialog):
     def result_key(self) -> str:
         return self._result
 
-
 def show_info(parent: QWidget | None, title: str, message: str) -> None:
     SteamDialog(parent, title, message, buttons=[("ok", "OK")]).exec()
-
 
 def show_warning(parent: QWidget | None, title: str, message: str) -> None:
     SteamDialog(parent, title, message, buttons=[("ok", "OK")]).exec()
 
-
 def show_error(parent: QWidget | None, title: str, message: str) -> None:
     SteamDialog(parent, title, message, buttons=[("ok", "OK")]).exec()
-
 
 def ask_yes_no(parent: QWidget | None, title: str, message: str) -> bool:
     dlg = SteamDialog(

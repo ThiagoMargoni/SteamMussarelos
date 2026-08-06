@@ -35,7 +35,6 @@ class Game:
     download_speed: str = ""
     download_size: str = ""
     download_error: str = ""
-    # "install" | "update" enquanto baixa/extrai — UI de badge/botao
     active_operation: Optional[str] = None
 
     def update_status(self, is_running: bool = False) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 APP_NAME = "SteamMussarelos"
-LAUNCHER_VERSION = "1.5.8"
+LAUNCHER_VERSION = "1.6.7"
 
 REMOTE_CATALOG_URL = "https://raw.githubusercontent.com/ThiagoMargoni/SteamMussarelos/master/data/games.json"
 
@@ -33,6 +33,8 @@ class Settings:
             "launcher_version": LAUNCHER_VERSION,
             "installed_games": {},
             "first_run_complete": False,
+            "scroll_speed": 1.0,
+            "close_to_tray": False,
         }
 
     def save(self) -> None:
@@ -100,3 +102,25 @@ class Settings:
 
     def get_installed_game(self, name: str) -> Optional[dict[str, Any]]:
         return self.installed_games.get(name)
+
+    @property
+    def scroll_speed(self) -> float:
+        try:
+            value = float(self._data.get("scroll_speed", 1.0))
+        except (TypeError, ValueError):
+            value = 1.0
+        return max(0.5, min(3.0, value))
+
+    @scroll_speed.setter
+    def scroll_speed(self, value: float) -> None:
+        self._data["scroll_speed"] = max(0.5, min(3.0, float(value)))
+        self.save()
+
+    @property
+    def close_to_tray(self) -> bool:
+        return bool(self._data.get("close_to_tray", False))
+
+    @close_to_tray.setter
+    def close_to_tray(self, value: bool) -> None:
+        self._data["close_to_tray"] = bool(value)
+        self.save()

@@ -6,10 +6,7 @@ from PySide6.QtWidgets import QWidget
 
 from src.ui.theme import COLORS
 
-
 class RoundProgressBar(QWidget):
-    """Barra cápsula: o chunk usa clip arredondado, então 1% não fica quadrado."""
-
     def __init__(self, parent=None, *, height: int = 16) -> None:
         super().__init__(parent)
         self._value = 0
@@ -57,6 +54,5 @@ class RoundProgressBar(QWidget):
         if fill_w <= 0:
             return
 
-        # Clip na cápsula: o pedaço estreito (1%) herda a curva da esquerda, sem virar retângulo.
         painter.setClipPath(track)
         painter.fillRect(QRectF(rect.left(), rect.top(), fill_w, rect.height()), self._chunk)

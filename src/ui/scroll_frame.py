@@ -7,7 +7,6 @@ from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
-    QScrollArea,
     QScrollBar,
     QSizePolicy,
     QStyle,
@@ -17,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.models.game import Game
+from src.ui.speed_scroll import SpeedScrollArea
 from src.ui.theme import CARD_RADIUS, COLORS, font_body
 
 _HANDLE_W = 8
@@ -134,7 +134,7 @@ class PlaceScrollFrame(QFrame):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        self._scroll = QScrollArea()
+        self._scroll = SpeedScrollArea()
         self._scroll.setObjectName("libraryScroll")
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -238,3 +238,6 @@ class PlaceScrollFrame(QFrame):
 
     def scroll_to_top(self) -> None:
         self._scroll.verticalScrollBar().setValue(0)
+
+    def set_scroll_speed(self, speed: float) -> None:
+        self._scroll.set_scroll_speed(speed)
