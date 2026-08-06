@@ -64,10 +64,12 @@ class Installer:
         if not games_folder:
             game.download_state = DownloadState.ERROR
             game.download_error = "Pasta de jogos não configurada."
+            game.active_operation = None
             self._notify(game, on_progress)
             return
 
         game_dir = Path(games_folder) / game.name
+        game.active_operation = "update" if is_update else "install"
         game.download_state = DownloadState.DOWNLOADING
         game.download_progress = 0.0
         game.download_error = ""
@@ -113,6 +115,7 @@ class Installer:
 
             game.download_state = DownloadState.FINISHED
             game.download_progress = 100.0
+            game.active_operation = None
             self._notify(game, on_progress)
 
         except Exception as exc:
@@ -122,10 +125,13 @@ class Installer:
                 shutil.rmtree(game_dir, ignore_errors=True)
             game.installed_version = None
             game.install_path = None
+            game.active_operation = None
             game.update_status()
             self._notify(game, on_progress)
 
         finally:
+            if game.download_state not in (DownloadState.FINISHED, DownloadState.ERROR):
+                game.active_operation = None
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _download(

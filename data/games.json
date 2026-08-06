@@ -94,6 +94,13 @@
       "download": "https://drive.google.com/file/d/16sbOMDiiBdy3vutLq1uAxrdznoCg1rfc/view",
       "icon": "icons/tabletop-simulator.png",
       "executable": "Tabletop Simulator.exe"
+    },
+    {
+      "name": "Big Walk",
+      "version": "1.4.7",
+      "download": "https://drive.google.com/file/d/1eDuNsxcKRarpMHU0mWcmAWi2Y72gAMOy/view",
+      "icon": "icons/big-walk.png",
+      "executable": "Big Walk.exe"
     }
   ]
 }

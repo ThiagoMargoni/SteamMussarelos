@@ -53,14 +53,27 @@ def main(argv: list[str] | None = None) -> None:
     set_local_assets(args.local)
     ensure_admin()
 
-    from src.ui.main_window import MainWindow
+    from PySide6.QtWidgets import QApplication
 
-    app = MainWindow()
+    from src.ui.main_window import MainWindow
+    from src.ui.theme import app_stylesheet, font_body
+    from src.utils.paths import resolve_resource
+
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setFont(font_body())
+    app.setStyleSheet(app_stylesheet())
+    icon = resolve_resource("assets", "app.ico")
+    if icon:
+        from PySide6.QtGui import QIcon
+
+        app.setWindowIcon(QIcon(str(icon.resolve())))
+
+    window = MainWindow()
     if args.local:
-        app.title("Steam dos Mussarelos [LOCAL]")
-    app.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.mainloop()
+        window.setWindowTitle("Steam dos Mussarelos [LOCAL]")
+    window.show()
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
-    # python main.py --local
     main()
