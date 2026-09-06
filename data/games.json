@@ -41,8 +41,8 @@
     },
     {
       "name": "Super Battle Golf",
-      "version": "1.1.2-436",
-      "download": "https://drive.google.com/file/d/1sfAoTPb9m0gpT7aJZ03dfDb9rCz6-IPI/view",
+      "version": "1.2.1-593",
+      "download": "https://drive.google.com/file/d/1Os8IgQcsr2bMHBjyniWtWZ6KtfE76MGQ/view",
       "icon": "icons/supper-battle-golf.png",
       "executable": "Super Battle Golf.exe"
     },
@@ -115,6 +115,13 @@
       "download": "https://drive.google.com/file/d/1d0TxpA0dkorVmfdiiWfAbs96kOgf3J3Y/view",
       "icon": "icons/dig-dig-die.png",
       "executable": "Dig, Dig, Die.exe"
+    },
+    {
+      "name": "Moo Who",
+      "version": "1.1047",
+      "download": "https://drive.google.com/file/d/11dRt9wF392C_Nxrbi-zRNgdpRQkIEPop/view",
+      "icon": "icons/moo-who.png",
+      "executable": "Moo Who.exe"
     }
   ]
 }
