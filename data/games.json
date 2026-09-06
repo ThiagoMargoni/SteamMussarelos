@@ -101,6 +101,13 @@
       "download": "https://drive.google.com/file/d/1eDuNsxcKRarpMHU0mWcmAWi2Y72gAMOy/view",
       "icon": "icons/big-walk.png",
       "executable": "Big Walk.exe"
+    },
+    {
+      "name": "Fields of Mistria",
+      "version": "1.0.4",
+      "download": "https://drive.google.com/file/d/1NeUTMzPLGwu21sqWHWY1J53hiVUYZoMA/view",
+      "icon": "icons/fields-mistria.png",
+      "executable": "FieldsOfMistria.exe"
     }
   ]
 }
