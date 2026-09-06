@@ -108,6 +108,13 @@
       "download": "https://drive.google.com/file/d/1NeUTMzPLGwu21sqWHWY1J53hiVUYZoMA/view",
       "icon": "icons/fields-mistria.png",
       "executable": "FieldsOfMistria.exe"
+    },
+    {
+      "name": "Dig, Dig, Die",
+      "version": "1.0.61.6",
+      "download": "https://drive.google.com/file/d/1d0TxpA0dkorVmfdiiWfAbs96kOgf3J3Y/view",
+      "icon": "icons/dig-dig-die.png",
+      "executable": "Dig, Dig, Die.exe"
     }
   ]
 }
