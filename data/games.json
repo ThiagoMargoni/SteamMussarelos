@@ -122,6 +122,13 @@
       "download": "https://drive.google.com/file/d/11dRt9wF392C_Nxrbi-zRNgdpRQkIEPop/view",
       "icon": "icons/moo-who.png",
       "executable": "Moo Who.exe"
+    },
+    {
+      "name": "Pratfall",
+      "version": "1.2.2.4395",
+      "download": "https://drive.google.com/file/d/1rAa7StP4wV2hTnrfNn6f844_6qAT-Yht/view",
+      "icon": "icons/pratfall.png",
+      "executable": "Pratfall.exe"
     }
   ]
 }
