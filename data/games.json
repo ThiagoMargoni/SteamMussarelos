@@ -129,6 +129,13 @@
       "download": "https://drive.google.com/file/d/1rAa7StP4wV2hTnrfNn6f844_6qAT-Yht/view",
       "icon": "icons/pratfall.png",
       "executable": "Pratfall.exe"
+    },
+    {
+      "name": "How to Fish",
+      "version": "1.0.12",
+      "download": "https://drive.google.com/file/d/1EexvOuiFQaIcY4uPITZs_-0A3otGPJ5G/view",
+      "icon": "icons/how-to-fish.png",
+      "executable": "How to Fish.exe"
     }
   ]
 }
