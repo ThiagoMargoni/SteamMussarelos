@@ -90,7 +90,11 @@ class Installer:
             return
 
         try:
-            ensure_extractor_available(game.download)
+            def _extractor_status(text: str) -> None:
+                game.download_speed = text
+                self._notify(game, on_progress)
+
+            ensure_extractor_available(game.download, on_status=_extractor_status)
         except ValueError as exc:
             game.download_state = DownloadState.ERROR
             game.download_error = str(exc)

@@ -161,7 +161,7 @@ def download_rom(
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="steam_rom_"))
     try:
-        ensure_extractor_available(rom.download)
+        ensure_extractor_available(rom.download, on_status=on_status)
         if on_status:
             on_status("Baixando...")
         archive = tmp_dir / "rom.bin"
