@@ -52,6 +52,35 @@ def _find_winrar() -> Optional[str]:
             return path
     return None
 
+def _archive_hint_from_name(name: str) -> str:
+    lower = (name or "").lower().split("?", 1)[0]
+    if lower.endswith(".7z"):
+        return "7z"
+    if lower.endswith(".rar"):
+        return "rar"
+    if lower.endswith(".zip"):
+        return "zip"
+    return ""
+
+def ensure_extractor_available(url_or_name: str) -> None:
+    kind = _archive_hint_from_name(url_or_name)
+    if kind == "7z":
+        if _find_7zip():
+            return
+        raise ValueError(
+            "Este download é um arquivo .7z e o 7-Zip não foi encontrado.\n\n"
+            "Instale o 7-Zip em https://www.7-zip.org/ e tente de novo, "
+            "ou use um link em ZIP."
+        )
+    if kind == "rar":
+        if _find_7zip() or _find_winrar():
+            return
+        raise ValueError(
+            "Este download é um arquivo .rar e nem 7-Zip nem WinRAR foram encontrados.\n\n"
+            "Instale o 7-Zip em https://www.7-zip.org/ e tente de novo, "
+            "ou use um link em ZIP."
+        )
+
 def _move_contents(src: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     for item in list(src.iterdir()):

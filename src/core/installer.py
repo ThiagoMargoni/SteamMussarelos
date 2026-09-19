@@ -8,8 +8,9 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from src.core.archive import extract_archive
+from src.core.archive import ensure_extractor_available, extract_archive
 from src.core.downloader import download_file
+from src.core.mods import backup_mods, restore_mods
 from src.core.settings import Settings
 from src.models.game import DownloadState, Game
 from src.utils import format_bytes, format_speed
@@ -68,24 +69,45 @@ class Installer:
             self._notify(game, on_progress)
             return
 
-        game_dir = Path(games_folder) / game.name
+        if game.install_subdir:
+            game_dir = Path(games_folder) / Path(game.install_subdir)
+        else:
+            game_dir = Path(games_folder) / game.name
         game.active_operation = "update" if is_update else "install"
         game.download_state = DownloadState.DOWNLOADING
         game.download_progress = 0.0
         game.download_error = ""
         self._notify(game, on_progress)
 
-        if is_update and game_dir.exists():
-            shutil.rmtree(game_dir, ignore_errors=True)
+        if not game.install_path:
+            game.install_path = str(game_dir)
 
-        game_dir.mkdir(parents=True, exist_ok=True)
+        if not game.download:
+            game.download_state = DownloadState.ERROR
+            game.download_error = "Link de download não configurado."
+            game.active_operation = None
+            self._notify(game, on_progress)
+            return
+
+        try:
+            ensure_extractor_available(game.download)
+        except ValueError as exc:
+            game.download_state = DownloadState.ERROR
+            game.download_error = str(exc)
+            game.active_operation = None
+            self._notify(game, on_progress)
+            return
 
         tmp_dir = Path(tempfile.mkdtemp())
         archive_path = tmp_dir / f"{game.name}.bin"
+        mods_backup = None
 
         try:
             archive_path = self._download(game, archive_path, cancel, on_progress)
             if cancel.is_set():
+                game.download_state = DownloadState.IDLE
+                game.active_operation = None
+                self._notify(game, on_progress)
                 return
 
             game.download_state = DownloadState.EXTRACTING
@@ -93,6 +115,11 @@ class Installer:
             game.download_speed = ""
             self._notify(game, on_progress)
 
+            if is_update and game_dir.exists():
+                mods_backup = backup_mods(game)
+                shutil.rmtree(game_dir, ignore_errors=True)
+
+            game_dir.mkdir(parents=True, exist_ok=True)
             extract_archive(archive_path, game_dir, preferred_executable=game.executable)
             self._write_version(game_dir, game.version)
 
@@ -105,6 +132,8 @@ class Installer:
             game.installed_version = game.version
             game.install_path = str(game_dir)
             game.update_status()
+            restore_mods(game, mods_backup)
+            mods_backup = None
 
             self.settings.set_installed_game(
                 game.name,
@@ -121,16 +150,31 @@ class Installer:
         except Exception as exc:
             game.download_state = DownloadState.ERROR
             game.download_error = str(exc)
-            if game_dir.exists():
-                shutil.rmtree(game_dir, ignore_errors=True)
-            game.installed_version = None
-            game.install_path = None
+            if mods_backup is not None and mods_backup.exists():
+                try:
+                    game.install_path = str(game_dir)
+                    game_dir.mkdir(parents=True, exist_ok=True)
+                    restore_mods(game, mods_backup)
+                    mods_backup = None
+                except Exception:
+                    shutil.rmtree(mods_backup, ignore_errors=True)
+                    mods_backup = None
+            if not (game_dir.exists() and any(game_dir.iterdir())):
+                game.installed_version = None
+                game.install_path = None
             game.active_operation = None
             game.update_status()
             self._notify(game, on_progress)
 
         finally:
-            if game.download_state not in (DownloadState.FINISHED, DownloadState.ERROR):
+            if mods_backup is not None and mods_backup.exists():
+                cleanup = mods_backup.parent if mods_backup.name == "mods" else mods_backup
+                shutil.rmtree(cleanup, ignore_errors=True)
+            if game.download_state not in (
+                DownloadState.FINISHED,
+                DownloadState.ERROR,
+                DownloadState.IDLE,
+            ):
                 game.active_operation = None
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -194,6 +238,7 @@ class Installer:
             "crashreportclient.exe",
             "uninstall.exe",
             "unins000.exe",
+            "mgba-sdl.exe",
         }
         exes = [
             p for p in game_dir.rglob("*.exe")
@@ -203,6 +248,12 @@ class Installer:
             exes = [p for p in game_dir.rglob("*.exe") if p.is_file()]
         if not exes:
             return None
+
+        preferred_names = ("mgba-qt.exe", "mgba.exe")
+        for name in preferred_names:
+            for path in exes:
+                if path.name.lower() == name:
+                    return str(path.relative_to(game_dir)).replace("\\", "/")
 
         best = sorted(exes, key=lambda p: (len(p.relative_to(game_dir).parts), p.name.lower()))[0]
         return str(best.relative_to(game_dir)).replace("\\", "/")

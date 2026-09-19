@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
 import psutil
 
+from src.core.debug_mode import log, log_exception
 from src.models.game import Game
 
 class ProcessManager:
     def __init__(self) -> None:
         self._running: dict[str, subprocess.Popen] = {}
+        self._pids: dict[str, int] = {}
         self._lock = threading.Lock()
         self._exe_index: dict[str, int] = {}
         self._index_ts: float = 0.0
@@ -35,6 +38,15 @@ class ProcessManager:
                 return True
             if proc:
                 self._running.pop(game.name, None)
+            tracked = self._pids.get(game.name)
+            if tracked:
+                try:
+                    if psutil.pid_exists(tracked) and psutil.Process(tracked).is_running():
+                        game.pid = tracked
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+                self._pids.pop(game.name, None)
 
         if game.pid:
             try:
@@ -57,6 +69,8 @@ class ProcessManager:
             pid = self._exe_index.get(key)
             if pid:
                 game.pid = pid
+                with self._lock:
+                    self._pids[game.name] = pid
                 return True
             return False
 
@@ -64,14 +78,37 @@ class ProcessManager:
             try:
                 if p.info["exe"] and Path(p.info["exe"]).resolve() == exe_path.resolve():
                     game.pid = p.info["pid"]
+                    with self._lock:
+                        self._pids[game.name] = game.pid
                     return True
             except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
                 continue
         return False
 
-    def start(self, game: Game) -> tuple[bool, str]:
+    def _start_windows(self, exe_path: Path, args: list[str], workdir: Path) -> tuple[subprocess.Popen, int]:
+        cmd = [str(exe_path), *args]
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        flags |= 0x01000000
+        log("debug", "CreateProcess", cmd=cmd, cwd=str(workdir), flags=flags)
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(workdir),
+            creationflags=flags,
+            close_fds=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return proc, int(proc.pid)
+
+    def start(
+        self,
+        game: Game,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> tuple[bool, str]:
         if self.is_running(game):
-            return False, "Jogo já está em execução."
+            return False, "Já está em execução."
 
         if not game.install_path or not game.executable:
             return False, "Executável não configurado."
@@ -80,16 +117,39 @@ class ProcessManager:
         if not exe_path.exists():
             return False, f"Executável não encontrado: {exe_path}"
 
+        workdir = Path(cwd) if cwd else Path(game.install_path)
+        cmd_args = list(args or [])
+        log(
+            "info",
+            "start game",
+            name=game.name,
+            exe=str(exe_path),
+            cwd=str(workdir),
+            args=cmd_args,
+        )
+
         try:
-            proc = subprocess.Popen(
-                [str(exe_path)],
-                cwd=str(game.install_path),
-            )
+            if sys.platform == "win32":
+                proc, pid = self._start_windows(
+                    exe_path.resolve(), cmd_args, workdir.resolve()
+                )
+                with self._lock:
+                    self._running[game.name] = proc
+                    self._pids[game.name] = pid
+                game.pid = pid
+                log("info", "start ok (CreateProcess)", name=game.name, pid=pid)
+                return True, "Iniciado."
+
+            cmd = [str(exe_path), *cmd_args]
+            proc = subprocess.Popen(cmd, cwd=str(workdir))
             with self._lock:
                 self._running[game.name] = proc
+                self._pids[game.name] = proc.pid
             game.pid = proc.pid
-            return True, "Jogo iniciado."
+            log("info", "start ok (Popen)", name=game.name, pid=proc.pid)
+            return True, "Iniciado."
         except OSError as exc:
+            log_exception("start falhou", exc)
             return False, str(exc)
 
     def stop(self, game: Game) -> tuple[bool, str]:
@@ -97,6 +157,7 @@ class ProcessManager:
 
         with self._lock:
             proc = self._running.pop(game.name, None)
+            tracked = self._pids.pop(game.name, None)
             if proc and proc.poll() is None:
                 proc.terminate()
                 try:
@@ -105,9 +166,10 @@ class ProcessManager:
                     proc.kill()
                 stopped = True
 
-        if game.pid:
+        pid = game.pid or tracked
+        if pid:
             try:
-                p = psutil.Process(game.pid)
+                p = psutil.Process(pid)
                 p.terminate()
                 try:
                     p.wait(timeout=5)
@@ -121,10 +183,10 @@ class ProcessManager:
             exe_path = Path(game.install_path) / game.executable
             key = str(exe_path.resolve()).lower()
             self._rebuild_exe_index()
-            pid = self._exe_index.get(key)
-            if pid:
+            found = self._exe_index.get(key)
+            if found:
                 try:
-                    psutil.Process(pid).terminate()
+                    psutil.Process(found).terminate()
                     stopped = True
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass

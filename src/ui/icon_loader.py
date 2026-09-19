@@ -25,6 +25,9 @@ _memory_lock = threading.Lock()
 def _cache_key(icon_path: str, size: int) -> str:
     return f"{icon_path}|{size}|contain"
 
+def _cover_cache_key(icon_path: str, width: int, height: int) -> str:
+    return f"{icon_path}|{width}x{height}|cover"
+
 def icon_cache_key(icon_path: str, size: int) -> str:
     return _cache_key(icon_path, size)
 
@@ -32,6 +35,18 @@ def _scale_icon(img: Image.Image, size: int) -> Image.Image:
     src = img.convert("RGBA")
     src.thumbnail((size, size), Image.Resampling.LANCZOS)
     return src
+
+def _scale_cover(img: Image.Image, width: int, height: int) -> Image.Image:
+    src = img.convert("RGBA")
+    if src.width <= 0 or src.height <= 0 or width <= 0 or height <= 0:
+        return Image.new("RGBA", (max(1, width), max(1, height)), (0, 0, 0, 0))
+    ratio = max(width / src.width, height / src.height)
+    new_w = max(width, int(round(src.width * ratio)))
+    new_h = max(height, int(round(src.height * ratio)))
+    src = src.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    left = max(0, (src.width - width) // 2)
+    top = max(0, (src.height - height) // 2)
+    return src.crop((left, top, left + width, top + height))
 
 def _icon_cache_dir() -> Path:
     base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or str(Path.home())
@@ -59,6 +74,15 @@ def get_cached_icon(icon_path: Optional[str], size: int = ICON_SIZE) -> Optional
         pix = _pixmap_cache.get(_cache_key(icon_path, size))
         return QPixmap(pix) if pix is not None else None
 
+def get_cached_cover(
+    icon_path: Optional[str], width: int, height: int
+) -> Optional[QPixmap]:
+    if not icon_path:
+        return None
+    with _memory_lock:
+        pix = _pixmap_cache.get(_cover_cache_key(icon_path, width, height))
+        return QPixmap(pix) if pix is not None else None
+
 def load_game_icon(
     icon_path: Optional[str],
     on_ready: Callable[[Optional[QPixmap]], None],
@@ -79,6 +103,40 @@ def load_game_icon(
     def _work() -> None:
         try:
             image = _fetch_image(icon_path, size, catalog_url)
+            if image is None:
+                ui_call(lambda: on_ready(None))
+                return
+            pixmap = pil_to_pixmap(image)
+            with _memory_lock:
+                _pil_cache[cache_key] = image
+                _pixmap_cache[cache_key] = pixmap
+            ui_call(lambda p=QPixmap(pixmap): on_ready(p))
+        except Exception:
+            ui_call(lambda: on_ready(None))
+
+    threading.Thread(target=_work, daemon=True).start()
+
+def load_game_cover(
+    icon_path: Optional[str],
+    on_ready: Callable[[Optional[QPixmap]], None],
+    width: int,
+    height: int,
+    catalog_url: str = REMOTE_CATALOG_URL,
+) -> None:
+    if not icon_path:
+        on_ready(None)
+        return
+
+    cache_key = _cover_cache_key(icon_path, width, height)
+    with _memory_lock:
+        cached = _pixmap_cache.get(cache_key)
+    if cached is not None:
+        on_ready(QPixmap(cached))
+        return
+
+    def _work() -> None:
+        try:
+            image = _fetch_cover(icon_path, width, height, catalog_url)
             if image is None:
                 ui_call(lambda: on_ready(None))
                 return
@@ -119,6 +177,43 @@ def _fetch_image(icon_path: Optional[str], size: int, catalog_url: str) -> Optio
             img = Image.open(found)
             img.load()
             return _scale_icon(img, size)
+    return None
+
+def _fetch_cover(
+    icon_path: Optional[str], width: int, height: int, catalog_url: str
+) -> Optional[Image.Image]:
+    img = _load_source_image(icon_path, catalog_url)
+    if img is None:
+        return None
+    return _scale_cover(img, width, height)
+
+def _load_source_image(icon_path: Optional[str], catalog_url: str) -> Optional[Image.Image]:
+    if not icon_path:
+        return None
+
+    if use_local_assets() or not (
+        icon_path.startswith("http://") or icon_path.startswith("https://")
+    ):
+        found = resolve_resource(icon_path) or resolve_resource("icons", Path(icon_path).name)
+        if found and found.exists():
+            img = Image.open(found)
+            img.load()
+            return img
+        if use_local_assets():
+            return None
+
+    remote = resolve_icon_url(icon_path, catalog_url)
+    if remote and (remote.startswith("http://") or remote.startswith("https://")):
+        img = _load_remote(remote)
+        if img is not None:
+            return img
+
+    if not icon_path.startswith("http"):
+        found = resolve_resource(icon_path) or resolve_resource("icons", Path(icon_path).name)
+        if found and found.exists():
+            img = Image.open(found)
+            img.load()
+            return img
     return None
 
 def _load_remote(url: str) -> Optional[Image.Image]:

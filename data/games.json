@@ -1,6 +1,6 @@
 {
   "launcher": {
-    "version": "1.6.7",
+    "version": "2.0.0",
     "download": "https://github.com/ThiagoMargoni/SteamMussarelos/releases/latest"
   },
   "games": [
@@ -72,7 +72,16 @@
       "version": "0.4.53",
       "download": "https://drive.google.com/file/d/1TTHQVvh1l3Y8yn-phIRkinO931vkhU2l/view",
       "icon": "icons/schedule.png",
-      "executable": "Schedule I.exe"
+      "executable": "Schedule I.exe",
+      "mods": {
+        "folderPath": "Mods",
+        "included": [
+          {
+            "name": "More Players",
+            "filename": "MorePlayersIL2CPP.dll"
+          }
+        ]
+      }
     },
     {
       "name": "Among Us",
@@ -136,6 +145,27 @@
       "download": "https://drive.google.com/file/d/1EexvOuiFQaIcY4uPITZs_-0A3otGPJ5G/view",
       "icon": "icons/how-to-fish.png",
       "executable": "How to Fish.exe"
+    }
+  ],
+  "emulators": [
+    {
+      "id": "gba",
+      "name": "Game Boy Advance",
+      "emulatorName": "mGBA",
+      "version": "0.10.3",
+      "download": "https://github.com/mgba-emu/mgba/releases/download/0.10.3/mGBA-0.10.3-win64.7z",
+      "executable": "mGBA.exe",
+      "extensions": [".gba", ".gbc", ".gb"],
+      "installSubdir": "Emulators/mGBA",
+      "icon": "icons/emulators/gba.png",
+      "roms": [
+        {
+          "name": "Pokemon Emerald",
+          "filename": "PK EMR (PT-BR).gba",
+          "download": "https://drive.google.com/file/d/1VyGCmnl61KNwOGA6L0YeoSRZPWdJJ2NN/view",
+          "icon": "icons/emulators/gba/pokemon-emerald.png"
+        }
+      ]
     }
   ]
 }

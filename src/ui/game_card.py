@@ -14,13 +14,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.models.game import DownloadState, Game, GameStatus
-from src.ui.action_icons import get_uninstall_icon
+from src.models.game import Game, GameStatus
+from src.ui.action_icons import get_settings_icon, get_uninstall_icon
+from src.ui.game_style import appearance_for, perform_game_action
 from src.ui.icon_loader import get_cached_icon, load_game_icon
 from src.ui.theme import (
     CARD_HEIGHT,
     CARD_RADIUS,
     COLORS,
+    EMU_ICON_SIZE,
     ICON_SIZE,
     PRIMARY_BTN_HEIGHT,
     PRIMARY_BTN_WIDTH,
@@ -42,15 +44,20 @@ class GameCard(QFrame):
         on_play: Callable[[Game], None],
         on_stop: Callable[[Game], None],
         on_uninstall: Callable[[Game], None],
+        on_mods: Callable[[Game], None] | None = None,
+        on_configure: Callable[[Game], None] | None = None,
         uninstall_icon=None,
     ) -> None:
         super().__init__(parent)
         self.game = game
         self._callbacks = (on_install, on_update, on_play, on_stop, on_uninstall)
+        self._on_mods = on_mods
+        self._on_configure = on_configure
         self._icon_token = 0
         self._last_signature: tuple | None = None
         self._fill = QColor(COLORS["bg_card"])
         self._edge = QColor(COLORS["border"])
+        self._draw_size = EMU_ICON_SIZE if game.is_emulator else ICON_SIZE
 
         self.setObjectName("gameCard")
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -63,21 +70,29 @@ class GameCard(QFrame):
         root.setContentsMargins(2, 0, 16, 0)
         root.setSpacing(0)
 
-        self.icon_label = QLabel()
-        self.icon_label.setFixedSize(ICON_SIZE, ICON_SIZE)
+        self.icon_slot = QWidget(self)
+        self.icon_slot.setFixedSize(ICON_SIZE, ICON_SIZE)
+        self.icon_slot.setStyleSheet("background: transparent; border: none;")
+        slot_layout = QHBoxLayout(self.icon_slot)
+        slot_layout.setContentsMargins(0, 0, 0, 0)
+        slot_layout.setSpacing(0)
+
+        self.icon_label = QLabel(self.icon_slot)
+        self.icon_label.setFixedSize(self._draw_size, self._draw_size)
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.icon_label.setStyleSheet("background: transparent; border: none;")
-        root.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        slot_layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self.icon_slot, 0, Qt.AlignmentFlag.AlignVCenter)
         root.addSpacing(4)
 
-        info = QWidget()
+        info = QWidget(self)
         info.setStyleSheet("background: transparent;")
         info_layout = QVBoxLayout(info)
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(0)
         info_layout.addStretch(1)
 
-        self.name_label = QLabel(game.name)
+        self.name_label = QLabel(game.name, info)
         self.name_label.setFont(font_heading())
         self.name_label.setStyleSheet(f"color: {COLORS['text']}; background: transparent;")
         info_layout.addWidget(self.name_label)
@@ -86,14 +101,35 @@ class GameCard(QFrame):
         meta.setContentsMargins(0, 6, 0, 0)
         meta.setSpacing(10)
 
-        self.status_badge = QLabel()
+        self.status_badge = QLabel(info)
         self.status_badge.setObjectName("statusBadge")
         self.status_badge.setFont(font_small())
         self.status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_badge.setMinimumHeight(18)
         meta.addWidget(self.status_badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self.version_label = QLabel()
+        self.mods_badge = QLabel("  Mods  ", info)
+        self.mods_badge.setObjectName("modsBadge")
+        self.mods_badge.setFont(font_small())
+        self.mods_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mods_badge.setMinimumHeight(18)
+        self.mods_badge.setStyleSheet(
+            f"""
+            QLabel#modsBadge {{
+                background-color: {COLORS['bg_panel']};
+                color: {COLORS['accent']};
+                border: none;
+                border-radius: 6px;
+                padding: 5px 14px;
+                margin: 0px;
+                min-height: 18px;
+            }}
+            """
+        )
+        self.mods_badge.setVisible(game.supports_mods)
+        meta.addWidget(self.mods_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.version_label = QLabel(info)
         self.version_label.setFont(font_caption())
         self.version_label.setStyleSheet(f"color: {COLORS['text_dim']}; background: transparent;")
         meta.addWidget(self.version_label, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -104,13 +140,13 @@ class GameCard(QFrame):
 
         root.addSpacing(8)
 
-        actions = QWidget()
+        actions = QWidget(self)
         actions.setStyleSheet("background: transparent;")
         actions_layout = QHBoxLayout(actions)
         actions_layout.setContentsMargins(0, 0, 0, 0)
         actions_layout.setSpacing(8)
 
-        self.action_btn = QPushButton("Instalar")
+        self.action_btn = QPushButton("Instalar", actions)
         self.action_btn.setFlat(True)
         self.action_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -119,7 +155,35 @@ class GameCard(QFrame):
         self.action_btn.clicked.connect(self._on_action)
         actions_layout.addWidget(self.action_btn)
 
-        self.uninstall_btn = QPushButton()
+        self.mods_btn = QPushButton("Mods", actions)
+        self.mods_btn.setFlat(True)
+        self.mods_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mods_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mods_btn.setFixedSize(72, PRIMARY_BTN_HEIGHT)
+        self.mods_btn.setFont(font_small())
+        self.mods_btn.setStyleSheet(
+            btn_style(COLORS["bg_panel"], COLORS["bg_card_hover"], COLORS["accent"])
+        )
+        self.mods_btn.clicked.connect(self._open_mods)
+        self.mods_btn.setVisible(game.supports_mods)
+        actions_layout.addWidget(self.mods_btn)
+
+        self.config_btn = QPushButton(actions)
+        self.config_btn.setFlat(True)
+        self.config_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.config_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.config_btn.setFixedSize(UNINSTALL_BTN, UNINSTALL_BTN)
+        self.config_btn.setIcon(get_settings_icon())
+        self.config_btn.setIconSize(QSize(UNINSTALL_ICON, UNINSTALL_ICON))
+        self.config_btn.setToolTip("Configurar")
+        self.config_btn.setStyleSheet(
+            btn_style(COLORS["bg_panel"], COLORS["bg_card_hover"], COLORS["accent"], COLORS["border"])
+        )
+        self.config_btn.clicked.connect(self._open_configure)
+        self.config_btn.setVisible(game.is_emulator)
+        actions_layout.addWidget(self.config_btn)
+
+        self.uninstall_btn = QPushButton(actions)
         self.uninstall_btn.setFlat(True)
         self.uninstall_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.uninstall_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -149,10 +213,23 @@ class GameCard(QFrame):
             self.refresh()
             return
         self.game = game
+        self._draw_size = EMU_ICON_SIZE if game.is_emulator else ICON_SIZE
+        self.icon_label.setFixedSize(self._draw_size, self._draw_size)
         self.name_label.setText(game.name)
+        self.mods_badge.setVisible(game.supports_mods)
+        self.mods_btn.setVisible(game.supports_mods)
+        self.config_btn.setVisible(game.is_emulator)
         self._last_signature = None
         self._load_icon()
         self.refresh(force=True)
+
+    def _open_mods(self) -> None:
+        if self._on_mods is not None:
+            self._on_mods(self.game)
+
+    def _open_configure(self) -> None:
+        if self._on_configure is not None:
+            self._on_configure(self.game)
 
     def _set_card_colors(self, bg: str, border: str) -> None:
         fill = QColor(bg)
@@ -182,24 +259,15 @@ class GameCard(QFrame):
             self.icon_label.setPixmap(pix)
             self.icon_label.setStyleSheet("background: transparent; border: none;")
 
-        cached = get_cached_icon(icon_name, ICON_SIZE)
+        size = self._draw_size
+        cached = get_cached_icon(icon_name, size)
         if cached is not None:
             _on_ready(cached)
             return
-        load_game_icon(icon_name, _on_ready, size=ICON_SIZE)
+        load_game_icon(icon_name, _on_ready, size=size)
 
     def _on_action(self) -> None:
-        if self.game.download_state in (DownloadState.DOWNLOADING, DownloadState.EXTRACTING):
-            return
-        on_install, on_update, on_play, on_stop, _ = self._callbacks
-        if self.game.status == GameStatus.RUNNING:
-            on_stop(self.game)
-        elif self.game.status == GameStatus.UPDATE_AVAILABLE:
-            on_update(self.game)
-        elif self.game.status == GameStatus.INSTALLED:
-            on_play(self.game)
-        else:
-            on_install(self.game)
+        perform_game_action(self.game, self._callbacks)
 
     def _signature(self) -> tuple:
         g = self.game
@@ -218,35 +286,16 @@ class GameCard(QFrame):
             return
         self._last_signature = sig
         g = self.game
+        look = appearance_for(g)
 
         self.version_label.setText(f"v{g.installed_version}" if g.installed_version else "")
 
-        busy = g.download_state in (DownloadState.DOWNLOADING, DownloadState.EXTRACTING)
-        is_updating = busy and g.active_operation == "update"
-        is_installing = busy and not is_updating
-
-        if is_updating:
-            status_text = "Atualizando"
-            text_color, bg = COLORS["warning"], "#3a3018"
-        elif is_installing:
-            status_text = "Instalando"
-            text_color, bg = COLORS["accent"], COLORS["bg_panel"]
-        else:
-            status_styles = {
-                GameStatus.NOT_INSTALLED: (COLORS["text_muted"], COLORS["bg_panel"]),
-                GameStatus.INSTALLED: (COLORS["success"], "#1a3320"),
-                GameStatus.UPDATE_AVAILABLE: (COLORS["warning"], "#3a3018"),
-                GameStatus.RUNNING: (COLORS["running"], "#1a3320"),
-            }
-            text_color, bg = status_styles.get(g.status, (COLORS["text_dim"], COLORS["bg_panel"]))
-            status_text = g.status.value
-
-        self.status_badge.setText(f"  {status_text}  ")
+        self.status_badge.setText(f"  {look.status_text}  ")
         self.status_badge.setStyleSheet(
             f"""
             QLabel#statusBadge {{
-                background-color: {bg};
-                color: {text_color};
+                background-color: {look.badge_bg};
+                color: {look.badge_fg};
                 border: none;
                 border-radius: 6px;
                 padding: 5px 14px;
@@ -256,28 +305,31 @@ class GameCard(QFrame):
             """
         )
 
-        if busy:
+        if look.busy:
             self._set_card_colors(COLORS["bg_card"], COLORS["border"])
-            if is_updating:
-                self._style_action("Atualizando...", COLORS["warning"], "#f0c93d", COLORS["bg_medium"])
-            else:
-                self._style_action("Instalando...", COLORS["accent"], COLORS["accent_hover"], COLORS["bg_medium"])
         elif g.status == GameStatus.RUNNING:
             self._set_card_colors(COLORS["bg_card_running"], COLORS["success"])
-            self._style_action("Encerrar", COLORS["danger"], COLORS["danger_hover"], "#ffffff")
-        elif g.status == GameStatus.UPDATE_AVAILABLE:
-            self._set_card_colors(COLORS["bg_card"], COLORS["border"])
-            self._style_action("Atualizar", COLORS["warning"], "#f0c93d", COLORS["bg_medium"])
-        elif g.status == GameStatus.INSTALLED:
-            self._set_card_colors(COLORS["bg_card"], COLORS["border"])
-            self._style_action("Iniciar", COLORS["success"], COLORS["success_hover"], COLORS["bg_medium"])
         else:
             self._set_card_colors(COLORS["bg_card"], COLORS["border"])
-            self._style_action("Instalar", COLORS["accent"], COLORS["accent_hover"], COLORS["bg_medium"])
 
-        self.action_btn.setEnabled(not busy)
-        can_uninstall = g.status in (GameStatus.INSTALLED, GameStatus.UPDATE_AVAILABLE) and not busy
-        self.uninstall_btn.setEnabled(can_uninstall)
+        self._style_action(look.action_text, look.action_bg, look.action_hover, look.action_fg)
+        self.action_btn.setEnabled(not look.busy)
+        self.uninstall_btn.setEnabled(look.can_uninstall)
+        can_mods = g.supports_mods and g.status in (
+            GameStatus.INSTALLED,
+            GameStatus.UPDATE_AVAILABLE,
+            GameStatus.RUNNING,
+        ) and not look.busy
+        self.mods_btn.setEnabled(can_mods)
+        self.mods_badge.setVisible(g.supports_mods)
+        self.mods_btn.setVisible(g.supports_mods)
+        can_config = (
+            g.is_emulator
+            and g.status in (GameStatus.INSTALLED, GameStatus.UPDATE_AVAILABLE)
+            and not look.busy
+        )
+        self.config_btn.setVisible(g.is_emulator)
+        self.config_btn.setEnabled(can_config)
 
     def _style_action(self, text: str, bg: str, hover: str, fg: str) -> None:
         self.action_btn.setText(text)

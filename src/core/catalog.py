@@ -16,6 +16,28 @@ from src.models.game import Catalog, Game, LauncherInfo
 from src.utils.paths import resolve_resource, resource_path
 from src.utils.remote_assets import resolve_icon_url
 
+def _parse_included_mods(mods_block: dict) -> list[dict[str, str]]:
+    raw = mods_block.get("included")
+    if raw is None:
+        raw = mods_block.get("installed")
+    if not isinstance(raw, list):
+        return []
+    result: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        filename = str(item.get("filename") or "").strip()
+        if not filename:
+            continue
+        key = filename.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        name = str(item.get("name") or Path(filename).stem).strip() or Path(filename).stem
+        result.append({"name": name, "filename": filename})
+    return result
+
 class CatalogService:
     def __init__(self, settings: Settings, catalog_url: str = REMOTE_CATALOG_URL) -> None:
         self.settings = settings
@@ -78,6 +100,10 @@ class CatalogService:
                 icon = raw_icon
             else:
                 icon = resolve_icon_url(raw_icon, self.catalog_url)
+            mods = entry.get("mods") or {}
+            folder = mods.get("folderPath") if isinstance(mods, dict) else None
+            mods_folder = str(folder).strip().replace("\\", "/") if folder else None
+            included_mods = _parse_included_mods(mods if isinstance(mods, dict) else {})
             games.append(
                 Game(
                     name=entry["name"],
@@ -85,12 +111,72 @@ class CatalogService:
                     download=entry["download"],
                     icon=icon,
                     executable=entry.get("executable"),
+                    mods_folder=mods_folder or None,
+                    included_mods=included_mods,
                 )
             )
 
-        return Catalog(launcher=launcher, games=games)
+        emulators = []
+        for entry in data.get("emulators", []):
+            raw_icon = entry.get("icon")
+            if use_local_assets():
+                icon = raw_icon
+            else:
+                icon = resolve_icon_url(raw_icon, self.catalog_url)
+            platform_id = str(entry.get("id") or "gba").strip().lower()
+            emu_name = str(entry.get("emulatorName") or entry.get("name") or "mGBA").strip()
+            exts_raw = entry.get("extensions") or [".gba"]
+            extensions = []
+            if isinstance(exts_raw, list):
+                for item in exts_raw:
+                    text = str(item).strip().lower()
+                    if not text:
+                        continue
+                    if not text.startswith("."):
+                        text = f".{text}"
+                    extensions.append(text)
+            if not extensions:
+                extensions = [".gba"]
+            install_subdir = str(entry.get("installSubdir") or f"Emulators/{emu_name}").strip()
+            catalog_roms: list[dict[str, str]] = []
+            raw_roms = entry.get("roms")
+            if isinstance(raw_roms, list):
+                for item in raw_roms:
+                    if not isinstance(item, dict):
+                        continue
+                    filename = str(item.get("filename") or "").strip()
+                    if not filename:
+                        continue
+                    catalog_roms.append(
+                        {
+                            "name": str(item.get("name") or Path(filename).stem).strip()
+                            or Path(filename).stem,
+                            "filename": filename,
+                            "download": str(item.get("download") or "").strip(),
+                            "icon": str(item.get("icon") or "").strip(),
+                        }
+                    )
+            emulators.append(
+                Game(
+                    name=emu_name,
+                    version=str(entry.get("version") or "1.0.0"),
+                    download=str(entry.get("download") or ""),
+                    icon=icon,
+                    executable=entry.get("executable") or "mGBA.exe",
+                    kind="emulator",
+                    platform_id=platform_id,
+                    platform_name=str(entry.get("name") or "Game Boy Advance"),
+                    rom_extensions=extensions,
+                    install_subdir=install_subdir,
+                    catalog_roms=catalog_roms,
+                )
+            )
+
+        return Catalog(launcher=launcher, games=games, emulators=emulators)
 
     def _merge_local_state(self, catalog: Catalog) -> None:
+        from src.core.emulators import sync_emulator_with_disk
+
         for game in catalog.games:
             local = self.settings.get_installed_game(game.name)
             if local:
@@ -105,6 +191,9 @@ class CatalogService:
 
         for game in catalog.games:
             game.update_status()
+
+        for emu in catalog.emulators:
+            sync_emulator_with_disk(emu, self.settings)
 
     def _scan_existing_installs(self, catalog: Catalog) -> None:
         folder = self.settings.games_folder

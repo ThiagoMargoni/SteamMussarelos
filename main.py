@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.core.debug_mode import set_local_assets
+from src.core.debug_mode import install_excepthook, log, set_local_assets
 from src.utils.admin import ensure_admin
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -51,10 +51,15 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(run_apply_update(target, args.update_pid))
 
     set_local_assets(args.local)
-    ensure_admin()
+    if args.local:
+        install_excepthook()
+        from src.core.settings import app_data_dir
+
+        log("info", "boot --local", cwd=str(ROOT), appdata=str(app_data_dir()))
 
     from PySide6.QtWidgets import QApplication
 
+    from src.core.single_instance import SingleInstance
     from src.ui.main_window import MainWindow
     from src.ui.theme import app_stylesheet, font_body
     from src.utils.paths import resolve_resource
@@ -69,11 +74,28 @@ def main(argv: list[str] | None = None) -> None:
 
         app.setWindowIcon(QIcon(str(icon.resolve())))
 
+    guard = SingleInstance(app)
+    if guard.activate_existing():
+        log("info", "instancia existente encontrada; saindo")
+        sys.exit(0)
+
+    ensure_admin()
+
+    if not guard.start_server():
+        log("info", "nao foi possivel iniciar single-instance server; saindo")
+        sys.exit(0)
+
     window = MainWindow()
+    guard.activated.connect(window.restore_from_background)
     if args.local:
         window.setWindowTitle("Steam dos Mussarelos [LOCAL]")
+        from src.core.debug_mode import log_path
+
+        log("info", "janela pronta", log_file=str(log_path()))
     window.show()
-    sys.exit(app.exec())
+    code = app.exec()
+    log("info", "app encerrado", code=code)
+    sys.exit(code)
 
 if __name__ == "__main__":
     main()

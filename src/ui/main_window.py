@@ -20,20 +20,32 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.catalog import CatalogService
+from src.core.debug_mode import log, log_exception
+from src.core.emulators import (
+    ensure_roms_dir,
+    launch_args_for,
+    mgba_dir,
+    prepare_mgba_config,
+    sync_emulator_with_disk,
+)
 from src.core.folder_setup import apply_games_folder
 from src.core.install_state import sync_game_with_disk
 from src.core.installer import Installer
 from src.core.process_manager import ProcessManager
-from src.core.settings import LAUNCHER_VERSION, Settings
+from src.core.settings import LAUNCHER_VERSION, LAYOUT_COVERS, Settings
 from src.core.steam_launch import ensure_steam_running
 from src.core.updater import apply_launcher_update, force_exit_for_update
-from src.models.game import DownloadState, Game, GameStatus
+from src.models.game import DownloadState, Game, GameStatus, RomEntry
 from src.ui.action_icons import get_uninstall_icon
 from src.ui.dialogs import ask_yes_no, show_error, show_info, show_warning
 from src.ui.download_panel import DownloadPanel
+from src.ui.emulator_settings_dialog import EmulatorSettingsDialog
 from src.ui.game_card import GameCard
+from src.ui.game_cover_card import GameCoverCard
+from src.ui.mods_dialog import ModsDialog
 from src.ui.progress_bar import RoundProgressBar
 from src.ui.qt_bridge import ui_bridge, ui_call
+from src.ui.roms_dialog import RomsDialog
 from src.ui.scroll_frame import PlaceScrollFrame
 from src.ui.settings_dialog import SettingsDialog
 from src.ui.setup_wizard import SetupWizard
@@ -41,6 +53,7 @@ from src.ui.theme import (
     COLORS,
     HEADER_HEIGHT,
     app_stylesheet,
+    btn_style,
     font_body,
     font_button,
     font_caption,
@@ -59,6 +72,8 @@ class MainWindow(QMainWindow):
         self.process_manager = ProcessManager()
 
         self._games: list[Game] = []
+        self._emulators: list[Game] = []
+        self._library_section = "games"
         self._search_query = ""
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -91,6 +106,9 @@ class MainWindow(QMainWindow):
         self._build_library(root)
         self._build_downloads(root)
         self._apply_scroll_speed(self.settings.scroll_speed)
+        app = QApplication.instance()
+        if app is not None:
+            app.setQuitOnLastWindowClosed(False)
         if self.settings.close_to_tray:
             self._setup_tray()
 
@@ -109,25 +127,111 @@ class MainWindow(QMainWindow):
         icon = QIcon(str(icon_path.resolve()))
         (window or self).setWindowIcon(icon)
 
-    def _create_card(self, parent, game: Game) -> GameCard:
-        return GameCard(
-            parent,
-            game,
+    def _create_card(self, parent, game: Game):
+        kwargs = dict(
+            parent=parent,
+            game=game,
             on_install=self._on_install,
             on_update=self._on_update,
             on_play=self._on_play,
             on_stop=self._on_stop,
             on_uninstall=self._on_uninstall,
+            on_mods=self._on_mods,
+            on_configure=self._on_configure_emulator,
             uninstall_icon=self._uninstall_icon,
         )
+        if self.settings.library_layout == LAYOUT_COVERS:
+            return GameCoverCard(**kwargs)
+        return GameCard(**kwargs)
 
     def _filtered_games(self) -> list[Game]:
         if not self._search_query:
             return list(self._games)
         return [g for g in self._games if self._search_query in g.name.casefold()]
 
-    def _card_for(self, name: str) -> GameCard | None:
+    def _filtered_emulators(self) -> list[Game]:
+        if not self._search_query:
+            return list(self._emulators)
+        q = self._search_query
+        return [
+            emu
+            for emu in self._emulators
+            if q in emu.name.casefold() or q in (emu.platform_name or "").casefold()
+        ]
+
+    def _card_for(self, name: str):
         return self.library_scroll.card_for(name)
+
+    def _set_library_section(self, section: str) -> None:
+        if section not in ("games", "emulators"):
+            return
+        if section == self._library_section:
+            return
+        self._library_section = section
+        self._refresh_section_tabs()
+        self._filter_cards()
+
+    def _refresh_section_tabs(self) -> None:
+        games_on = self._library_section == "games"
+        self.games_tab_btn.setStyleSheet(
+            btn_style(
+                COLORS["accent"] if games_on else COLORS["bg_panel"],
+                COLORS["accent_hover"] if games_on else COLORS["bg_card_hover"],
+                COLORS["bg_medium"] if games_on else COLORS["text_dim"],
+            )
+        )
+        emu_on = self._library_section == "emulators"
+        self.emu_tab_btn.setStyleSheet(
+            btn_style(
+                COLORS["accent"] if emu_on else COLORS["bg_panel"],
+                COLORS["accent_hover"] if emu_on else COLORS["bg_card_hover"],
+                COLORS["bg_medium"] if emu_on else COLORS["text_dim"],
+            )
+        )
+        if self._library_section == "games":
+            self.search_entry.setPlaceholderText("Pesquisar jogos...")
+        else:
+            self.search_entry.setPlaceholderText("Pesquisar emuladores...")
+
+    def _filter_cards(self) -> None:
+        self._close_cover_popups()
+        if self._library_section == "emulators":
+            items = self._filtered_emulators()
+            if not self._emulators:
+                self.library_scroll.show_message("Nenhum emulador no catálogo.")
+                return
+            if not items:
+                q = self.search_entry.text().strip()
+                self.library_scroll.show_message(f'Nenhum emulador encontrado para "{q}".')
+                return
+            self.library_scroll.set_games(
+                items, self._create_card, layout_mode=self.settings.library_layout
+            )
+            return
+
+        filtered = self._filtered_games()
+        if not self._games:
+            self.library_scroll.show_message("Nenhum jogo encontrado no catálogo.")
+            return
+        if not filtered:
+            q = self.search_entry.text().strip()
+            self.library_scroll.show_message(f'Nenhum jogo encontrado para "{q}".')
+            return
+        self.library_scroll.set_games(
+            filtered, self._create_card, layout_mode=self.settings.library_layout
+        )
+
+    def _close_cover_popups(self) -> None:
+        for card in self.library_scroll.iter_cards():
+            closer = getattr(card, "close_manage_popup", None)
+            if callable(closer):
+                closer()
+
+    def _render_catalog(self, games: list[Game], emulators: list[Game] | None = None) -> None:
+        self._games = list(games)
+        self._emulators = list(emulators or [])
+        self.process_manager.refresh_all(self._games + self._emulators)
+        self._filter_cards()
 
     def _ensure_steam(self) -> None:
         def _run() -> None:
@@ -165,8 +269,6 @@ class MainWindow(QMainWindow):
         left.addWidget(subtitle)
         layout.addLayout(left, 1)
 
-        from src.ui.theme import btn_style
-
         self.reload_btn = QPushButton("Atualizar")
         self.reload_btn.setFlat(True)
         self.reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -203,6 +305,24 @@ class MainWindow(QMainWindow):
         label.setFont(font_heading())
         label.setStyleSheet(f"color: {COLORS['text']}; background: transparent;")
         title_row.addWidget(label)
+        title_row.addSpacing(12)
+
+        self.games_tab_btn = QPushButton("Jogos")
+        self.games_tab_btn.setFlat(True)
+        self.games_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.games_tab_btn.setFixedHeight(32)
+        self.games_tab_btn.setFont(font_button())
+        self.games_tab_btn.clicked.connect(lambda: self._set_library_section("games"))
+        title_row.addWidget(self.games_tab_btn)
+
+        self.emu_tab_btn = QPushButton("Emuladores")
+        self.emu_tab_btn.setFlat(True)
+        self.emu_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.emu_tab_btn.setFixedHeight(32)
+        self.emu_tab_btn.setFont(font_button())
+        self.emu_tab_btn.clicked.connect(lambda: self._set_library_section("emulators"))
+        title_row.addWidget(self.emu_tab_btn)
+
         title_row.addStretch(1)
         self.search_entry = QLineEdit()
         self.search_entry.setPlaceholderText("Pesquisar jogos...")
@@ -212,6 +332,7 @@ class MainWindow(QMainWindow):
         self.search_entry.returnPressed.connect(self._apply_search)
         title_row.addWidget(self.search_entry)
         layout.addLayout(title_row)
+        self._refresh_section_tabs()
 
         self.library_scroll = PlaceScrollFrame()
         layout.addWidget(self.library_scroll, 1)
@@ -282,9 +403,16 @@ class MainWindow(QMainWindow):
             self._restore_from_tray()
 
     def _restore_from_tray(self) -> None:
+        self.restore_from_background()
+
+    def restore_from_background(self) -> None:
+        if self.isHidden():
+            self.show()
         self.showNormal()
         self.raise_()
         self.activateWindow()
+        if self._tray is not None and self.settings.close_to_tray:
+            self._tray.show()
 
     def _quit_app(self) -> None:
         self._force_quit = True
@@ -310,12 +438,14 @@ class MainWindow(QMainWindow):
         folder_change: str | None,
         scroll_speed: float | None,
         close_to_tray: bool | None,
+        library_layout: str | None = None,
     ) -> None:
         if scroll_speed is not None:
             self.settings.scroll_speed = scroll_speed
             self._apply_scroll_speed(scroll_speed)
         if close_to_tray is not None:
             self.settings.close_to_tray = close_to_tray
+            app = QApplication.instance()
             if close_to_tray:
                 if self._tray is None:
                     self._setup_tray()
@@ -323,6 +453,14 @@ class MainWindow(QMainWindow):
                     self._tray.show()
             elif self._tray is not None:
                 self._tray.hide()
+                self._tray = None
+            if app is not None:
+                app.setQuitOnLastWindowClosed(False)
+        if library_layout is not None:
+            changed = library_layout != self.settings.library_layout
+            self.settings.library_layout = library_layout
+            if changed:
+                self._filter_cards()
         if folder_change:
             self._change_games_folder(folder_change)
 
@@ -360,7 +498,9 @@ class MainWindow(QMainWindow):
         def _fetch() -> None:
             try:
                 catalog = self.catalog_service.fetch()
-                ui_call(lambda: self._render_catalog(catalog.games))
+                ui_call(
+                    lambda: self._render_catalog(catalog.games, catalog.emulators)
+                )
                 ui_call(self._check_launcher_update)
             except Exception as exc:
                 ui_call(
@@ -376,22 +516,6 @@ class MainWindow(QMainWindow):
 
     def _apply_search(self) -> None:
         self._search_query = self.search_entry.text().strip().casefold()
-        self._filter_cards()
-
-    def _filter_cards(self) -> None:
-        filtered = self._filtered_games()
-        if not self._games:
-            self.library_scroll.show_message("Nenhum jogo encontrado no catálogo.")
-            return
-        if not filtered:
-            q = self.search_entry.text().strip()
-            self.library_scroll.show_message(f'Nenhum jogo encontrado para "{q}".')
-            return
-        self.library_scroll.set_games(filtered, self._create_card)
-
-    def _render_catalog(self, games: list[Game]) -> None:
-        self._games = list(games)
-        self.process_manager.refresh_all(games)
         self._filter_cards()
 
     def _check_launcher_update(self) -> None:
@@ -499,6 +623,8 @@ class MainWindow(QMainWindow):
         if self._updating_launcher or not self.catalog_service.catalog:
             return
         games = self.catalog_service.catalog.games
+        emulators = self.catalog_service.catalog.emulators
+        tracked = games + emulators
         self._disk_sync_counter += 1
         if self._disk_sync_counter >= 5:
             self._disk_sync_counter = 0
@@ -516,8 +642,22 @@ class MainWindow(QMainWindow):
                     card = self._card_for(game.name)
                     if card:
                         card.refresh()
+            for emu in emulators:
+                if emu.status == GameStatus.RUNNING:
+                    continue
+                if emu.download_state in (
+                    DownloadState.DOWNLOADING,
+                    DownloadState.EXTRACTING,
+                ):
+                    continue
+                before = emu.status
+                sync_emulator_with_disk(emu, self.settings)
+                if emu.status != before:
+                    card = self._card_for(emu.name)
+                    if card:
+                        card.refresh()
 
-        changed = self.process_manager.refresh_all(games)
+        changed = self.process_manager.refresh_all(tracked)
         for name, did_change in changed.items():
             if not did_change:
                 continue
@@ -538,6 +678,11 @@ class MainWindow(QMainWindow):
                     f"{game.name}\n\n{game.download_error}",
                 )
             elif game.download_state == DownloadState.FINISHED:
+                if game.is_emulator and game.platform_id:
+                    try:
+                        ensure_roms_dir(self.settings, game.platform_id)
+                    except Exception:
+                        pass
                 QTimer.singleShot(4500, lambda g=game: self._reset_download_state(g))
 
         ui_call(_ui)
@@ -558,6 +703,11 @@ class MainWindow(QMainWindow):
         self.installer.install(game, on_progress=self._on_progress, is_update=True)
 
     def _on_play(self, game: Game) -> None:
+        log("info", "on_play", name=game.name, emulator=game.is_emulator)
+        if game.is_emulator:
+            self._open_roms(game)
+            return
+
         if not sync_game_with_disk(game, self.settings):
             show_info(
                 self,
@@ -570,6 +720,7 @@ class MainWindow(QMainWindow):
                 card.refresh()
             return
         ok, msg = self.process_manager.start(game)
+        log("info", "on_play result", name=game.name, ok=ok, msg=msg)
         if not ok:
             show_warning(self, "Aviso", msg)
         game.update_status(is_running=True)
@@ -577,11 +728,99 @@ class MainWindow(QMainWindow):
         if card:
             card.refresh()
 
+    def _open_roms(self, emulator: Game) -> None:
+        sync_emulator_with_disk(emulator, self.settings)
+        if emulator.status == GameStatus.NOT_INSTALLED:
+            show_info(
+                self,
+                "Emulador",
+                f"Baixe o {emulator.name} antes de jogar ROMs.",
+            )
+            return
+        RomsDialog(
+            self,
+            emulator,
+            self.settings,
+            on_play=self._on_play_rom,
+        ).exec()
+        card = self._card_for(emulator.name)
+        if card:
+            card.refresh()
+
+    def _on_configure_emulator(self, emulator: Game) -> None:
+        sync_emulator_with_disk(emulator, self.settings)
+        if emulator.status == GameStatus.NOT_INSTALLED:
+            show_info(
+                self,
+                "Emulador",
+                f"Baixe o {emulator.name} antes de configurar.",
+            )
+            return
+        EmulatorSettingsDialog(self, emulator).exec()
+
+    def _on_play_rom(self, emulator: Game, rom: RomEntry) -> None:
+        log(
+            "info",
+            "on_play_rom",
+            emulator=emulator.name,
+            rom=rom.name,
+            path=rom.path,
+            installed=rom.installed,
+        )
+        sync_emulator_with_disk(emulator, self.settings)
+        if emulator.status == GameStatus.NOT_INSTALLED:
+            show_info(
+                self,
+                "Emulador",
+                f"Baixe o {emulator.name} antes de jogar ROMs.",
+            )
+            return
+        if emulator.status == GameStatus.RUNNING:
+            show_warning(self, "Aviso", f"{emulator.name} já está em execução.")
+            return
+        if not rom.installed or not rom.path:
+            show_warning(self, "ROM", "Baixe a ROM antes de jogar.")
+            return
+        try:
+            prepare_mgba_config(emulator, rom.platform_id)
+            args = launch_args_for(emulator, rom)
+            cwd = str(mgba_dir(emulator))
+            log("info", "play_rom launch", cwd=cwd, args=args, exe=emulator.executable)
+            ok, msg = self.process_manager.start(
+                emulator,
+                args=args,
+                cwd=cwd,
+            )
+        except Exception as exc:
+            log_exception("play_rom falhou", exc)
+            show_error(self, "Emulador", str(exc))
+            return
+        log("info", "play_rom result", ok=ok, msg=msg, pid=emulator.pid)
+        if not ok:
+            show_warning(self, "Aviso", msg)
+            return
+        emulator.update_status(is_running=True)
+        if self.isHidden():
+            self.show()
+        self.showNormal()
+        self.raise_()
+        card = self._card_for(emulator.name)
+        if card:
+            card.refresh()
+
     def _on_uninstall(self, game: Game) -> None:
         if game.status == GameStatus.RUNNING:
             show_warning(self, "Aviso", "Encerre o jogo antes de desinstalar.")
             return
-        if not ask_yes_no(
+        if game.is_emulator:
+            if not ask_yes_no(
+                self,
+                "Desinstalar emulador",
+                f"Remover {game.name}?\n\n"
+                "As ROMs e os saves NÃO serão apagados.",
+            ):
+                return
+        elif not ask_yes_no(
             self,
             "Desinstalar",
             f"Remover {game.name}?\n\nTodos os arquivos da instalação serão apagados.",
@@ -591,6 +830,18 @@ class MainWindow(QMainWindow):
         card = self._card_for(game.name)
         if card:
             card.refresh()
+
+    def _on_mods(self, game: Game) -> None:
+        if not game.supports_mods:
+            return
+        if game.status == GameStatus.NOT_INSTALLED or not game.install_path:
+            show_info(
+                self,
+                "Mods",
+                f"Instale {game.name} antes de gerenciar mods.",
+            )
+            return
+        ModsDialog(self, game, self.settings).exec()
 
     def _on_stop(self, game: Game) -> None:
         self.process_manager.stop(game)
@@ -603,16 +854,24 @@ class MainWindow(QMainWindow):
         self._quit_app()
 
     def closeEvent(self, event) -> None:
+        log(
+            "info",
+            "closeEvent",
+            force=self._force_quit,
+            close_to_tray=self.settings.close_to_tray,
+        )
         if self._force_quit or not self.settings.close_to_tray:
             self._monitor_timer.stop()
             if self._tray is not None:
                 self._tray.hide()
             event.accept()
+            QApplication.instance().quit()
             return
 
         if self._tray is None or not QSystemTrayIcon.isSystemTrayAvailable():
             self._monitor_timer.stop()
             event.accept()
+            QApplication.instance().quit()
             return
 
         event.ignore()
