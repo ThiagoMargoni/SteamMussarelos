@@ -145,6 +145,13 @@
       "download": "https://drive.google.com/file/d/1EexvOuiFQaIcY4uPITZs_-0A3otGPJ5G/view",
       "icon": "icons/how-to-fish.png",
       "executable": "How to Fish.exe"
+    },
+    {
+      "name": "Gang Beasts",
+      "version": "1.28",
+      "download": "https://drive.google.com/file/d/13SiP-NUprCucP3k472e7jvt63udSZRuM/view",
+      "icon": "icons/gang-beasts.png",
+      "executable": "Gang Beasts.exe"
     }
   ],
   "emulators": [
