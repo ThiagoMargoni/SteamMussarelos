@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from src.core.archive import ensure_extractor_available, extract_archive
+from src.core.debug_mode import log
 from src.core.downloader import download_file
 from src.core.mods import backup_mods, restore_mods
 from src.core.settings import Settings
@@ -119,12 +120,32 @@ class Installer:
             game.download_speed = ""
             self._notify(game, on_progress)
 
-            if is_update and game_dir.exists():
+            if game_dir.exists():
                 mods_backup = backup_mods(game)
+                log("info", "limpando pasta antes de extrair", path=str(game_dir))
                 shutil.rmtree(game_dir, ignore_errors=True)
 
             game_dir.mkdir(parents=True, exist_ok=True)
-            extract_archive(archive_path, game_dir, preferred_executable=game.executable)
+            log(
+                "info",
+                "extraindo arquivo",
+                game=game.name,
+                archive=str(archive_path),
+                dest=str(game_dir),
+                size=archive_path.stat().st_size if archive_path.is_file() else 0,
+            )
+            file_count, exe_rel = extract_archive(
+                archive_path,
+                game_dir,
+                preferred_executable=game.executable,
+            )
+            log(
+                "info",
+                "extracao concluida",
+                game=game.name,
+                files=file_count,
+                exe=exe_rel,
+            )
             self._write_version(game_dir, game.version)
 
             detected = self._find_executable(game_dir, preferred=game.executable)

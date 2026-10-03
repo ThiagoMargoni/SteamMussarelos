@@ -5,17 +5,19 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
 _SERVER_NAME = "SteamMussarelosSingleInstance"
+_SERVER_NAME_LOCAL = "SteamMussarelosSingleInstanceLocal"
 
 class SingleInstance(QObject):
     activated = Signal()
 
-    def __init__(self, app: QApplication) -> None:
+    def __init__(self, app: QApplication, *, local: bool = False) -> None:
         super().__init__(app)
         self._server: QLocalServer | None = None
+        self._name = _SERVER_NAME_LOCAL if local else _SERVER_NAME
 
     def activate_existing(self) -> bool:
         socket = QLocalSocket(self)
-        socket.connectToServer(_SERVER_NAME)
+        socket.connectToServer(self._name)
         if not socket.waitForConnected(400):
             socket.abort()
             return False
@@ -30,11 +32,11 @@ class SingleInstance(QObject):
     def start_server(self) -> bool:
         if self.activate_existing():
             return False
-        QLocalServer.removeServer(_SERVER_NAME)
+        QLocalServer.removeServer(self._name)
         server = QLocalServer(self)
-        if not server.listen(_SERVER_NAME):
-            QLocalServer.removeServer(_SERVER_NAME)
-            if not server.listen(_SERVER_NAME):
+        if not server.listen(self._name):
+            QLocalServer.removeServer(self._name)
+            if not server.listen(self._name):
                 return not self.activate_existing()
         server.newConnection.connect(self._on_new_connection)
         self._server = server

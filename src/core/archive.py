@@ -12,6 +12,16 @@ from src.core.debug_mode import log, log_exception
 from src.core.settings import app_data_dir
 
 ARCHIVE_SUFFIXES = {".zip", ".rar", ".7z"}
+PROTECTED_ARCHIVE_LIKE_SUFFIXES = {
+    ".o2r",
+    ".otr",
+    ".mpq",
+    ".pak",
+    ".wad",
+    ".arc",
+    ".rarc",
+    ".szs",
+}
 _SEVEN_ZIP_INSTALLERS = (
     "https://www.7-zip.org/a/7z2603-x64.exe",
     "https://www.7-zip.org/a/7z2602-x64.exe",
@@ -336,15 +346,18 @@ def _extract_one(archive: Path, dest: Path) -> int:
         "Use ZIP ou RAR (com 7-Zip instalado)."
     )
 
+def _is_protected_archive_like(path: Path) -> bool:
+    return path.suffix.lower() in PROTECTED_ARCHIVE_LIKE_SUFFIXES
+
+def _is_nested_archive(path: Path) -> bool:
+    if not path.is_file() or _is_protected_archive_like(path):
+        return False
+    return path.suffix.lower() in ARCHIVE_SUFFIXES
+
 def _find_nested_archives(root: Path) -> list[Path]:
     found: list[Path] = []
     for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        if path.suffix.lower() in ARCHIVE_SUFFIXES:
-            found.append(path)
-            continue
-        if detect_archive_type(path) in {"zip", "rar", "7z"}:
+        if _is_nested_archive(path):
             found.append(path)
     return found
 
@@ -418,10 +431,7 @@ def _promote_game_root(dest: Path, preferred_executable: Optional[str] = None) -
                     pass
 
     for leftover in list(dest.glob("*")):
-        if leftover.is_file() and (
-            leftover.suffix.lower() in ARCHIVE_SUFFIXES
-            or detect_archive_type(leftover) in {"zip", "rar", "7z"}
-        ):
+        if _is_nested_archive(leftover):
             leftover.unlink(missing_ok=True)
 
     exe_final = dest / exe.name
@@ -442,15 +452,29 @@ def extract_archive(
         raise ValueError("Arquivo baixado está vazio ou incompleto.")
 
     dest.mkdir(parents=True, exist_ok=True)
+    log(
+        "info",
+        "extract_archive",
+        archive=str(archive),
+        dest=str(dest),
+        preferred=preferred_executable or "",
+        kind=detect_archive_type(archive),
+    )
     extracted = _extract_one(archive, dest)
     if extracted == 0:
         raise ValueError("Nenhum arquivo foi extraído.")
 
-    _extract_nested_archives(dest)
     exe_rel = _promote_game_root(dest, preferred_executable)
 
     file_count = sum(1 for p in dest.rglob("*") if p.is_file())
     if file_count == 0:
         raise ValueError("Nenhum arquivo ficou na pasta após a extração.")
 
+    log(
+        "info",
+        "extract_archive done",
+        files=file_count,
+        exe=exe_rel or "",
+        tops=", ".join(sorted(p.name for p in dest.iterdir())[:20]),
+    )
     return file_count, exe_rel

@@ -74,10 +74,28 @@ def main(argv: list[str] | None = None) -> None:
 
         app.setWindowIcon(QIcon(str(icon.resolve())))
 
-    guard = SingleInstance(app)
+    guard = SingleInstance(app, local=args.local)
     if guard.activate_existing():
-        log("info", "instancia existente encontrada; saindo")
+        log("info", "instancia existente encontrada; saindo", local=args.local)
         sys.exit(0)
+
+    if args.local:
+        from PySide6.QtWidgets import QMessageBox
+
+        import psutil
+
+        release_running = any(
+            (p.info.get("name") or "").lower() == "steammussarelos.exe"
+            for p in psutil.process_iter(["name"])
+        )
+        if release_running:
+            QMessageBox.warning(
+                None,
+                "Modo local",
+                "O SteamMussarelos.exe (versão instalada) ainda está aberto.\n\n"
+                "Feche ele antes de usar --local, senão você continua "
+                "testando o executável antigo sem as correções.",
+            )
 
     ensure_admin()
 

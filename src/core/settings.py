@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 APP_NAME = "SteamMussarelos"
-LAUNCHER_VERSION = "2.0.1"
+LAUNCHER_VERSION = "2.0.2"
 LAYOUT_LIST = "list"
 LAYOUT_COVERS = "covers"
 
