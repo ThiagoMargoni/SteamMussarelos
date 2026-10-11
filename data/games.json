@@ -166,6 +166,13 @@
       "download": "https://drive.google.com/file/d/1CNSIj9T7g061q6XjzHiNH4mQM7l_-kLm/view",
       "icon": "icons/golf-it.png",
       "executable": "GolfIt.exe"
+    },
+    {
+      "name": "AbioticFactor",
+      "version": "1.4.0.27939",
+      "download": "https://drive.google.com/file/d/1BIfx8grwwWXW02A4N7QlznT1_UrtXxAY/view",
+      "icon": "icons/abiotic-factor.png",
+      "executable": "AbioticFactor.exe"
     }
   ],
   "emulators": [
