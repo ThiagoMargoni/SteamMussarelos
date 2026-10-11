@@ -159,6 +159,13 @@
       "download": "https://drive.google.com/file/d/1UlkGqJVwqma2lepCVl0yyn-Tq4-kwJel/view",
       "icon": "icons/zelda-ocarina-of-time.png",
       "executable": "soh.exe"
+    },
+    {
+      "name": "Golf It!",
+      "version": "1.2.0.1",
+      "download": "https://drive.google.com/file/d/1CNSIj9T7g061q6XjzHiNH4mQM7l_-kLm/view",
+      "icon": "icons/golf-it.png",
+      "executable": "GolfIt.exe"
     }
   ],
   "emulators": [
