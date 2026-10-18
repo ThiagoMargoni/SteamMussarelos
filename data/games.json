@@ -173,6 +173,13 @@
       "download": "https://drive.google.com/file/d/1CiNT8aJ9SVLnstDx1Sa5tkSshjGHhGw5/view",
       "icon": "icons/abiotic-factor.png",
       "executable": "AbioticFactor.exe"
+    },
+    {
+      "name": "CrashoutCrew",
+      "version": "1.3.7",
+      "download": "https://drive.google.com/file/d/1dAp5KUAIMUmvCXYi2omxxgVCoUidbrZ_/view",
+      "icon": "icons/crashout-crew.png",
+      "executable": "CrashoutCrew.exe"
     }
   ],
   "emulators": [
