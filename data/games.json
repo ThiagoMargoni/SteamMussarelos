@@ -180,6 +180,13 @@
       "download": "https://drive.google.com/file/d/1dAp5KUAIMUmvCXYi2omxxgVCoUidbrZ_/view",
       "icon": "icons/crashout-crew.png",
       "executable": "CrashoutCrew.exe"
+    },
+    {
+      "name": "GONE Fishing",
+      "version": "1.0.1",
+      "download": "https://drive.google.com/file/d/16sUzfprsbBYXtepM-cKAZt2Iku7f3lD4/view",
+      "icon": "icons/gone-fishing.png",
+      "executable": "GONEfishing.exe"
     }
   ],
   "emulators": [
