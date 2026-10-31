@@ -187,6 +187,13 @@
       "download": "https://drive.google.com/file/d/1i-yLRHy4KFZIm6Tnyao-FD0OUTcQp5QU/view",
       "icon": "icons/gone-fishing.png",
       "executable": "GONEfishing.exe"
+    },
+    {
+      "name": "Scam With Your Friends",
+      "version": "0.1.89",
+      "download": "https://drive.google.com/file/d/1igWsvh-n5oquFv0wsUuimZFpyGEGsEUz/view",
+      "icon": "icons/scam-with-your-friends.png",
+      "executable": "Scam With Your Friends.exe"
     }
   ],
   "emulators": [
