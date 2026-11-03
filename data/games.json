@@ -133,13 +133,6 @@
       "executable": "Moo Who.exe"
     },
     {
-      "name": "Pratfall",
-      "version": "1.2.2.4395",
-      "download": "https://drive.google.com/file/d/1rAa7StP4wV2hTnrfNn6f844_6qAT-Yht/view",
-      "icon": "icons/pratfall.png",
-      "executable": "Pratfall.exe"
-    },
-    {
       "name": "How to Fish",
       "version": "1.0.12",
       "download": "https://drive.google.com/file/d/1EexvOuiFQaIcY4uPITZs_-0A3otGPJ5G/view",
@@ -161,13 +154,6 @@
       "executable": "soh.exe"
     },
     {
-      "name": "Golf It!",
-      "version": "1.2.0.1",
-      "download": "https://drive.google.com/file/d/1CNSIj9T7g061q6XjzHiNH4mQM7l_-kLm/view",
-      "icon": "icons/golf-it.png",
-      "executable": "GolfIt.exe"
-    },
-    {
       "name": "Abiotic Factor",
       "version": "1.4.0.27939",
       "download": "https://drive.google.com/file/d/1CiNT8aJ9SVLnstDx1Sa5tkSshjGHhGw5/view",
@@ -176,10 +162,19 @@
     },
     {
       "name": "CrashoutCrew",
-      "version": "1.3.7",
-      "download": "https://drive.google.com/file/d/1dAp5KUAIMUmvCXYi2omxxgVCoUidbrZ_/view",
+      "version": "1.3.8",
+      "download": "https://drive.google.com/file/d/1kG3Gpwylmwh-4R_7kSQ2xCxFzOdrWLW3/view",
       "icon": "icons/crashout-crew.png",
-      "executable": "CrashoutCrew.exe"
+      "executable": "CrashoutCrew.exe",
+      "mods": {
+        "folderPath": "BepInEx/plugins",
+        "included": [
+          {
+            "name": "Crew Size",
+            "filename": "CrewSizeMod.dll"
+          }
+        ]
+      }
     },
     {
       "name": "GONE Fishing",
