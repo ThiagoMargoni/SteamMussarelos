@@ -194,6 +194,41 @@
       "download": "https://drive.google.com/file/d/1igWsvh-n5oquFv0wsUuimZFpyGEGsEUz/view",
       "icon": "icons/scam-with-your-friends.png",
       "executable": "Scam With Your Friends.exe"
+    },
+    {
+      "name": "Palword",
+      "version": "1.0.5",
+      "download": "https://drive.google.com/file/d/1BeNeBTnZf18vpApR49hRJmaqRGoEC2vq/view",
+      "icon": "icons/palword.png",
+      "executable": "Pal/Binaries/WinGDK/Palworld-WinGDK-Shipping.exe"
+    },
+    {
+      "name": "Project Zomboid",
+      "version": "40.21.5",
+      "download": "https://drive.google.com/file/d/1VjPCMV6Cajl-uKqW2fIqwKPpMW6pD5TI/view",
+      "icon": "icons/project-zomboid.png",
+      "executable": "ProjectZomboid64.exe"
+    },
+    {
+      "name": "Shift at Midnight",
+      "version": "1.0.3",
+      "download": "https://drive.google.com/file/d/1GVhmAbYm5kxyYlD88C3T2dpYufWcbij1/view",
+      "icon": "icons/shift-at-midnight.png",
+      "executable": "ShiftAtMidnight.exe"
+    },
+    {
+      "name": "Content Warning",
+      "version": "1.24.0",
+      "download": "https://drive.google.com/file/d/19z7C_XLISHTM_eLVHdpF5T1_csvUE8IJ/view",
+      "icon": "icons/content-warning.png",
+      "executable": "Content Warning.exe"
+    },
+    {
+      "name": "RAFT",
+      "version": "1.1.01",
+      "download": "https://drive.google.com/file/d/1Sel-EdPYL-aAWdsXomIYm3YFzOl5Axkr/view",
+      "icon": "icons/raft.png",
+      "executable": "Raft.exe"
     }
   ],
   "emulators": [
